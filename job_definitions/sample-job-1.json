@@ -1,0 +1,15 @@
+{
+    "id": "sample-1",
+    "name": "Sample Job with Sequential Task executions.",
+    "tasks": {
+      "task1": {"id": "task1", "name": "First Task", "maxRetry": 3, "functionName": "task1Function"},
+      "task2": {"id": "task2", "name": "Second Task", "maxRetry": 2, "functionName": "task2Function"},
+      "task3": {"id": "task3", "name": "Third Task", "maxRetry": 1, "functionName": "task3Function"}
+    },
+    "graph": {
+      "task1": [],
+      "task2": ["task1"],
+      "task3": ["task2"]
+    }
+}
+  

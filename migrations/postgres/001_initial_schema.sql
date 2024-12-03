@@ -1,8 +1,5 @@
-// migrations/postgres/001_initial_schema.sql
-
 -- Initial schema for naxos workflow system
 -- Creates core tables for job definitions, job executions, and task executions
-
 
 CREATE TABLE job_definitions (
     id VARCHAR PRIMARY KEY,

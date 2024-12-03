@@ -1,0 +1,95 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: naxos
+      POSTGRES_PASSWORD: naxos123
+      POSTGRES_DB: naxos
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations/postgres:/docker-entrypoint-initdb.d
+    networks:
+      - naxos
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U naxos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: naxos
+      RABBITMQ_DEFAULT_PASS: naxos123
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - naxos
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8080:8080"
+    environment:
+      CONFIG_FILE: /app/config.yaml
+    volumes:
+      - ./config.yaml:/app/config.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - naxos
+
+  orchestrator1:
+    build:
+      context: .
+      dockerfile: Dockerfile.orchestrator
+    environment:
+      CONFIG_FILE: /app/config.yaml
+    volumes:
+      - ./config.yaml:/app/config.yaml
+      - leveldb_data1:/app/data/leveldb
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - naxos
+
+  orchestrator2:
+    build:
+      context: .
+      dockerfile: Dockerfile.orchestrator
+    environment:
+      CONFIG_FILE: /app/config.yaml
+    volumes:
+      - ./config.yaml:/app/config.yaml
+      - leveldb_data2:/app/data/leveldb
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - naxos
+
+volumes:
+  postgres_data:
+  leveldb_data1:
+  leveldb_data2:
+
+networks:
+  naxos:

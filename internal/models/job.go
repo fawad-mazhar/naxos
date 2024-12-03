@@ -26,7 +26,7 @@ type JobDefinition struct {
 	Graph map[string][]string `json:"graph"` // key: taskID, value: dependency task IDs
 }
 
-// JobExecution represents a single instance of a job being executed
+// internal/models/job.go update JobExecution struct
 type JobExecution struct {
 	ID           string                 `json:"id"`
 	DefinitionID string                 `json:"definitionId"`
@@ -35,6 +35,7 @@ type JobExecution struct {
 	StartTime    time.Time              `json:"startTime"`
 	EndTime      *time.Time             `json:"endTime,omitempty"`
 	Data         map[string]interface{} `json:"data"`
+	TaskStatuses map[string]TaskStatus  `json:"taskStatuses"`
 	CreatedAt    time.Time              `json:"createdAt"`
 	UpdatedAt    time.Time              `json:"updatedAt"`
 }
