@@ -20,10 +20,10 @@ const (
 
 // JobDefinition represents a job template with its tasks and dependencies
 type JobDefinition struct {
-	ID    string              `json:"id"`
-	Name  string              `json:"name"`
-	Tasks map[string]Task     `json:"tasks"`
-	Graph map[string][]string `json:"graph"` // key: taskID, value: dependency task IDs
+	ID    string              `json:"id" yaml:"id"`
+	Name  string              `json:"name" yaml:"name"`
+	Tasks map[string]Task     `json:"tasks" yaml:"tasks"`
+	Graph map[string][]string `json:"graph" yaml:"graph"`
 }
 
 // internal/models/job.go update JobExecution struct

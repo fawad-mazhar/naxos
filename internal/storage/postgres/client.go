@@ -7,15 +7,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"github.com/fawad-mazhar/naxos/internal/config"
 	"github.com/fawad-mazhar/naxos/internal/models"
 	_ "github.com/lib/pq"
+	"gopkg.in/yaml.v3"
 )
 
 type Client struct {
 	db *sql.DB
+}
+
+// JobDefinitions represents the root structure of the YAML file
+type JobDefinitions struct {
+	Definitions []models.JobDefinition `yaml:"job_definitions"`
 }
 
 func NewClient(cfg config.PostgresConfig) (*Client, error) {
@@ -64,6 +72,35 @@ func (c *Client) StoreJobDefinition(ctx context.Context, job *models.JobDefiniti
 
 	_, err = c.db.ExecContext(ctx, query, job.ID, job.Name, tasks, graph)
 	return err
+}
+
+// LoadJobDefinitions reads and registers all job definitions from the job_definitions directory
+func (c *Client) LoadJobDefinitions(ctx context.Context) error {
+	data, err := os.ReadFile("job_definitions.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to read job definitions file: %w", err)
+	}
+
+	var jobs JobDefinitions
+	if err := yaml.Unmarshal(data, &jobs); err != nil {
+		return fmt.Errorf("failed to parse job definitions: %w", err)
+	}
+
+	// Debug output
+	for _, jobDef := range jobs.Definitions {
+		log.Printf("Loading job definition: %s", jobDef.ID)
+		for taskID, task := range jobDef.Tasks {
+			log.Printf("Task %s: Function = %s", taskID, task.FunctionName)
+		}
+
+		if err := c.StoreJobDefinition(ctx, &jobDef); err != nil {
+			log.Printf("Error storing job definition %s: %v", jobDef.ID, err)
+			continue
+		}
+		log.Printf("Successfully loaded job definition: %s", jobDef.ID)
+	}
+
+	return nil
 }
 
 func (c *Client) GetJobDefinition(ctx context.Context, id string) (*models.JobDefinition, error) {
@@ -199,17 +236,17 @@ func (c *Client) UpdateTaskStatus(ctx context.Context, taskID string, status mod
 
 	query := `
         UPDATE task_executions
-        SET status = $1, 
+        SET status = $1::varchar, 
             error = $2,
             updated_at = NOW(),
-            end_time = CASE WHEN $1 IN ($3, $4) THEN NOW() ELSE end_time END
+            end_time = CASE WHEN $1::varchar IN ($3::varchar, $4::varchar) THEN NOW() ELSE end_time END
         WHERE id = $5`
 
 	result, err := c.db.ExecContext(ctx, query,
-		status,
+		string(status),
 		errMsg,
-		models.TaskStatusCompleted,
-		models.TaskStatusFailed,
+		string(models.TaskStatusCompleted),
+		string(models.TaskStatusFailed),
 		taskID,
 	)
 	if err != nil {

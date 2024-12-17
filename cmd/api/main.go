@@ -37,6 +37,11 @@ func main() {
 	}
 	defer queue.Close()
 
+	// Load job definitions
+	if err := db.LoadJobDefinitions(context.Background()); err != nil {
+		log.Printf("Warning: failed to load job definitions: %v", err)
+	}
+
 	// Setup router
 	router := routes.SetupRouter(cfg, db, queue)
 
