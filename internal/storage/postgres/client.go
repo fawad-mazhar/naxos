@@ -504,3 +504,29 @@ func (c *Client) GetJobTasks(ctx context.Context, jobID string) ([]models.TaskEx
 
 	return tasks, nil
 }
+
+func (c *Client) CompleteJob(ctx context.Context, jobID string, endTime time.Time) error {
+	query := `
+        UPDATE job_executions
+        SET status = $1,
+            end_time = $2,
+            updated_at = NOW()
+        WHERE id = $3
+        RETURNING id`
+
+	var id string
+	err := c.db.QueryRowContext(ctx, query,
+		models.JobStatusCompleted,
+		endTime,
+		jobID,
+	).Scan(&id)
+
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("job not found: %s", jobID)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to update job completion: %w", err)
+	}
+
+	return nil
+}

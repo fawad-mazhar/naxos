@@ -31,7 +31,7 @@ EOF
 )
 
     # Send POST request
-    response=$(curl -s -X POST -H "Content-Type: application/json" -d "$random_data" http://localhost:8080/jobs/sample-2/execute)
+    response=$(curl -s -X POST -H "Content-Type: application/json" -d "$random_data" http://localhost:8080/api/v1/jobs/sample-2/execute)
 
     # Print response
     echo "Job $i Response: $response"

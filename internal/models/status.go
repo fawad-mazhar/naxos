@@ -18,11 +18,10 @@ type StatusMessage struct {
 
 // SystemState represents the current state of the entire system
 type SystemState struct {
-	ActiveJobs    []JobExecutionState `json:"activeJobs"`
-	QueuedCount   int                 `json:"queuedCount"`
-	ExecutedJobs  int                 `json:"executedJobs"`
-	ActiveWorkers int                 `json:"activeWorkers"`
-	UpdatedAt     time.Time           `json:"updatedAt"`
+	ActiveJobs   []JobExecutionState `json:"activeJobs"`
+	QueuedCount  int                 `json:"queuedCount"`
+	ExecutedJobs int                 `json:"executedJobs"`
+	UpdatedAt    time.Time           `json:"updatedAt"`
 }
 
 // NewStatusMessage creates a new status message
