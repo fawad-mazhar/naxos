@@ -1,0 +1,89 @@
+# naxos.yaml
+
+# System Configuration
+# Api Server
+server:
+  port: "8080"
+  readTimeout: 30
+  writeTimeout: 30
+
+postgres:
+  host: "postgres"
+  port: 5432
+  user: "naxos"
+  password: "naxos123"
+  dbname: "naxos"
+  sslmode: "disable"
+
+rabbitmq:
+  url: "amqp://naxos:naxos123@rabbitmq:5672/"
+  exchange: "naxos"
+  queue: "naxos.jobs"
+  jobsQueue: "naxos.jobs"
+  statusQueue: "naxos.status"
+  exchangeType: "direct"
+
+# Local DB Cache
+leveldb:
+  path: "./data/leveldb"
+
+# Single Worker Definition
+worker:
+  maxWorkers: 10
+  maxRetries: 3
+  retryDelay: 5
+  shutdownTimeout: 30
+
+# Job Definitions
+job_definitions:
+  - id: "sample-1"
+    name: "Sequential Task Chain"
+    tasks:
+      task1:
+        id: "task1"
+        name: "First Task"
+        maxRetry: 3
+        functionName: "Task1"
+      task2:
+        id: "task2"
+        name: "Second Task"
+        maxRetry: 2
+        functionName: "Task2"
+      task3:
+        id: "task3"
+        name: "Third Task"
+        maxRetry: 1
+        functionName: "Task3"
+    graph:
+      task1: []
+      task2: ["task1"]
+      task3: ["task2"]
+
+  - id: "sample-2"
+    name: "Parallel Task Execution"
+    tasks:
+      task1:
+        id: "task1"
+        name: "Initial Task"
+        maxRetry: 3
+        functionName: "Task1"
+      task2:
+        id: "task2"
+        name: "Parallel Task A"
+        maxRetry: 2
+        functionName: "Task2"
+      task3:
+        id: "task3"
+        name: "Parallel Task B"
+        maxRetry: 2
+        functionName: "Task3"
+      task4:
+        id: "task4"
+        name: "Final Task"
+        maxRetry: 1
+        functionName: "Task4"
+    graph:
+      task1: []
+      task2: ["task1"]
+      task3: ["task1"]
+      task4: ["task2", "task3"]

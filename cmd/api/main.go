@@ -18,7 +18,7 @@ import (
 
 func main() {
 	// Load configuration
-	cfg, err := config.Load("config.yaml")
+	cfg, err := config.Load("naxos.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -38,7 +38,7 @@ func main() {
 	defer queue.Close()
 
 	// Load job definitions
-	if err := db.LoadJobDefinitions(context.Background()); err != nil {
+	if err := db.LoadJobDefinitions(context.Background(), cfg.JobDefinitions); err != nil {
 		log.Printf("Warning: failed to load job definitions: %v", err)
 	}
 

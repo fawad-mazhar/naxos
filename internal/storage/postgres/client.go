@@ -8,13 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/fawad-mazhar/naxos/internal/config"
 	"github.com/fawad-mazhar/naxos/internal/models"
 	_ "github.com/lib/pq"
-	"gopkg.in/yaml.v3"
 )
 
 type Client struct {
@@ -74,32 +72,15 @@ func (c *Client) StoreJobDefinition(ctx context.Context, job *models.JobDefiniti
 	return err
 }
 
-// LoadJobDefinitions reads and registers all job definitions from the job_definitions directory
-func (c *Client) LoadJobDefinitions(ctx context.Context) error {
-	data, err := os.ReadFile("job_definitions.yaml")
-	if err != nil {
-		return fmt.Errorf("failed to read job definitions file: %w", err)
-	}
-
-	var jobs JobDefinitions
-	if err := yaml.Unmarshal(data, &jobs); err != nil {
-		return fmt.Errorf("failed to parse job definitions: %w", err)
-	}
-
-	// Debug output
-	for _, jobDef := range jobs.Definitions {
+func (c *Client) LoadJobDefinitions(ctx context.Context, jobDefs []models.JobDefinition) error {
+	for _, jobDef := range jobDefs {
 		log.Printf("Loading job definition: %s", jobDef.ID)
-		for taskID, task := range jobDef.Tasks {
-			log.Printf("Task %s: Function = %s", taskID, task.FunctionName)
-		}
-
 		if err := c.StoreJobDefinition(ctx, &jobDef); err != nil {
 			log.Printf("Error storing job definition %s: %v", jobDef.ID, err)
 			continue
 		}
 		log.Printf("Successfully loaded job definition: %s", jobDef.ID)
 	}
-
 	return nil
 }
 

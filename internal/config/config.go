@@ -2,71 +2,77 @@
 package config
 
 import (
-	"github.com/spf13/viper"
+	"fmt"
+	"os"
+
+	"github.com/fawad-mazhar/naxos/internal/models"
+	"gopkg.in/yaml.v3"
 )
 
 // Config holds all configuration for the application
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Postgres PostgresConfig `mapstructure:"postgres"`
-	RabbitMQ RabbitMQConfig `mapstructure:"rabbitmq"`
-	LevelDB  LevelDBConfig  `mapstructure:"leveldb"`
-	Worker   WorkerConfig   `mapstructure:"worker"`
+	Server         ServerConfig           `yaml:"server"`
+	Postgres       PostgresConfig         `yaml:"postgres"`
+	RabbitMQ       RabbitMQConfig         `yaml:"rabbitmq"`
+	LevelDB        LevelDBConfig          `yaml:"leveldb"`
+	Worker         WorkerConfig           `yaml:"worker"`
+	JobDefinitions []models.JobDefinition `yaml:"job_definitions"` // Changed this
+}
+
+type JobDefinitions struct {
+	Definitions []models.JobDefinition `yaml:"job_definitions"`
 }
 
 // ServerConfig holds HTTP server configuration
 type ServerConfig struct {
-	Port         string `mapstructure:"port"`
-	ReadTimeout  int    `mapstructure:"readTimeout"`
-	WriteTimeout int    `mapstructure:"writeTimeout"`
+	Port         string `yaml:"port"`
+	ReadTimeout  int    `yaml:"readTimeout"`
+	WriteTimeout int    `yaml:"writeTimeout"`
 }
 
 // PostgresConfig holds PostgreSQL configuration
 type PostgresConfig struct {
-	Host     string `mapstructure:"host"`
-	Port     int    `mapstructure:"port"`
-	User     string `mapstructure:"user"`
-	Password string `mapstructure:"password"`
-	DBName   string `mapstructure:"dbname"`
-	SSLMode  string `mapstructure:"sslmode"`
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
+	DBName   string `yaml:"dbname"`
+	SSLMode  string `yaml:"sslmode"`
 }
 
 // RabbitMQConfig holds RabbitMQ configuration
 type RabbitMQConfig struct {
-	URL          string `mapstructure:"url"`
-	Exchange     string `mapstructure:"exchange"`
-	Queue        string `mapstructure:"queue"`
-	JobsQueue    string `mapstructure:"jobsQueue"`
-	StatusQueue  string `mapstructure:"statusQueue"`
-	ExchangeType string `mapstructure:"exchangeType"`
+	URL          string `yaml:"url"`
+	Exchange     string `yaml:"exchange"`
+	Queue        string `yaml:"queue"`
+	JobsQueue    string `yaml:"jobsQueue"`
+	StatusQueue  string `yaml:"statusQueue"`
+	ExchangeType string `yaml:"exchangeType"`
 }
 
 // LevelDBConfig holds LevelDB configuration
 type LevelDBConfig struct {
-	Path string `mapstructure:"path"`
+	Path string `yaml:"path"`
 }
 
 // WorkerConfig holds worker configuration
 type WorkerConfig struct {
-	MaxWorkers      int `mapstructure:"maxWorkers"`
-	MaxRetries      int `mapstructure:"maxRetries"`
-	RetryDelay      int `mapstructure:"retryDelay"`
-	ShutdownTimeout int `mapstructure:"shutdownTimeout"`
+	MaxWorkers      int `yaml:"maxWorkers"`
+	MaxRetries      int `yaml:"maxRetries"`
+	RetryDelay      int `yaml:"retryDelay"`
+	ShutdownTimeout int `yaml:"shutdownTimeout"`
 }
 
 // Load loads configuration from file and environment variables
 func Load(configPath string) (*Config, error) {
-	var config Config
-
-	viper.SetConfigFile(configPath)
-	viper.AutomaticEnv()
-
-	if err := viper.ReadInConfig(); err != nil {
-		return nil, err
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	if err := viper.Unmarshal(&config); err != nil {
-		return nil, err
+	var config Config
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
 	return &config, nil
