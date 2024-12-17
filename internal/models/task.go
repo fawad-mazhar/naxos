@@ -31,7 +31,7 @@ type TaskExecution struct {
 	JobID      string     `json:"jobId"`
 	TaskID     string     `json:"taskId"`
 	Status     TaskStatus `json:"status"`
-	Error      string     `json:"error,omitempty"`
+	Error      *string    `json:"error,omitempty"`
 	StartTime  time.Time  `json:"startTime"`
 	EndTime    *time.Time `json:"endTime,omitempty"`
 	RetryCount int        `json:"retryCount"`

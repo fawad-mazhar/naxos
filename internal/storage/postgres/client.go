@@ -323,9 +323,14 @@ func (c *Client) ClaimStaleJob(ctx context.Context, jobID string, workerID strin
 
 // GetJobExecutionDetails retrieves complete job execution info including tasks
 func (c *Client) GetJobExecutionDetails(ctx context.Context, executionID string) (*models.JobExecution, []models.TaskExecution, error) {
+	// Add debug logging
+	log.Printf("Querying job execution details for ID: %s", executionID)
+
 	// First get job execution
 	query := `
-        SELECT id, definition_id, status, worker_id, start_time, end_time, data, created_at, updated_at
+        SELECT 
+            id, definition_id, status, worker_id, 
+            start_time, end_time, data, created_at, updated_at
         FROM job_executions 
         WHERE id = $1`
 
@@ -344,22 +349,36 @@ func (c *Client) GetJobExecutionDetails(ctx context.Context, executionID string)
 		&job.UpdatedAt,
 	)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			log.Printf("No job found with ID: %s", executionID)
+			return nil, nil, fmt.Errorf("job not found")
+		}
+		log.Printf("Error querying job: %v", err)
 		return nil, nil, fmt.Errorf("failed to get job execution: %w", err)
 	}
 
-	if err := json.Unmarshal(dataBytes, &job.Data); err != nil {
-		return nil, nil, fmt.Errorf("failed to unmarshal job data: %w", err)
+	// Initialize job.Data if dataBytes is not null
+	if dataBytes != nil {
+		if err := json.Unmarshal(dataBytes, &job.Data); err != nil {
+			log.Printf("Error unmarshaling job data: %v", err)
+			return nil, nil, fmt.Errorf("failed to unmarshal job data: %w", err)
+		}
+	} else {
+		job.Data = make(map[string]interface{})
 	}
 
 	// Then get all tasks for this job
 	taskQuery := `
-        SELECT id, job_id, task_id, status, error, retry_count, start_time, end_time, created_at, updated_at
+        SELECT 
+            id, job_id, task_id, status, error, 
+            retry_count, start_time, end_time, created_at, updated_at
         FROM task_executions 
         WHERE job_id = $1 
         ORDER BY created_at ASC`
 
 	rows, err := c.db.QueryContext(ctx, taskQuery, executionID)
 	if err != nil {
+		log.Printf("Error querying tasks: %v", err)
 		return nil, nil, fmt.Errorf("failed to get task executions: %w", err)
 	}
 	defer rows.Close()
@@ -367,12 +386,13 @@ func (c *Client) GetJobExecutionDetails(ctx context.Context, executionID string)
 	var tasks []models.TaskExecution
 	for rows.Next() {
 		var task models.TaskExecution
+		var errorMsg *string // Will be NULL if no error
 		err := rows.Scan(
 			&task.ID,
 			&task.JobID,
 			&task.TaskID,
 			&task.Status,
-			&task.Error,
+			&errorMsg,
 			&task.RetryCount,
 			&task.StartTime,
 			&task.EndTime,
@@ -380,11 +400,14 @@ func (c *Client) GetJobExecutionDetails(ctx context.Context, executionID string)
 			&task.UpdatedAt,
 		)
 		if err != nil {
+			log.Printf("Error scanning task: %v", err)
 			return nil, nil, fmt.Errorf("failed to scan task execution: %w", err)
 		}
+		task.Error = errorMsg // Assign the possibly NULL error message
 		tasks = append(tasks, task)
 	}
 
+	log.Printf("Successfully retrieved job with %d tasks", len(tasks))
 	return &job, tasks, nil
 }
 

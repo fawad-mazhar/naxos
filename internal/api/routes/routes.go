@@ -24,6 +24,13 @@ func SetupRouter(cfg *config.Config, db *postgres.Client, queue *queue.RabbitMQ)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
 
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			next.ServeHTTP(w, r)
+		})
+	})
+
 	// Initialize handlers
 	jobHandler := handlers.NewJobHandler(db, queue)
 	statusHandler := handlers.NewStatusHandler(db)
