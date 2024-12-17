@@ -19,10 +19,10 @@ const (
 
 // Task represents a single unit of work within a job
 type Task struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	MaxRetry     int    `json:"maxRetry"`
-	FunctionName string `json:"functionName"` // Added this field
+	ID           string `json:"id" yaml:"id"`
+	Name         string `json:"name" yaml:"name"`
+	MaxRetry     int    `json:"maxRetry" yaml:"maxRetry"`
+	FunctionName string `json:"functionName" yaml:"functionName"`
 }
 
 // TaskExecution represents a single instance of a task being executed
@@ -31,7 +31,7 @@ type TaskExecution struct {
 	JobID      string     `json:"jobId"`
 	TaskID     string     `json:"taskId"`
 	Status     TaskStatus `json:"status"`
-	Error      string     `json:"error,omitempty"`
+	Error      *string    `json:"error,omitempty"`
 	StartTime  time.Time  `json:"startTime"`
 	EndTime    *time.Time `json:"endTime,omitempty"`
 	RetryCount int        `json:"retryCount"`

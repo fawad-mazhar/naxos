@@ -3,6 +3,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 
 	"github.com/fawad-mazhar/naxos/internal/models"
@@ -80,11 +81,14 @@ func (h *JobHandler) ExecuteJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *JobHandler) GetJobStatus(w http.ResponseWriter, r *http.Request) {
+	// Add debug logging
 	executionID := chi.URLParam(r, "id")
+	log.Printf("Getting status for job: %s", executionID)
 
 	// Get job execution from database
 	jobExec, taskExecs, err := h.db.GetJobExecutionDetails(r.Context(), executionID)
 	if err != nil {
+		log.Printf("Error getting job execution details: %v", err)
 		http.Error(w, "job not found", http.StatusNotFound)
 		return
 	}
@@ -98,7 +102,11 @@ func (h *JobHandler) GetJobStatus(w http.ResponseWriter, r *http.Request) {
 		Tasks:        taskExecs,
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding response: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 func validateJobDefinition(jobDef *models.JobDefinition) error {

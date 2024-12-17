@@ -1,3 +1,4 @@
+# Dockerfile
 FROM golang:1.23-alpine
 
 WORKDIR /app
@@ -12,7 +13,8 @@ RUN go mod download
 # Copy source code
 COPY . .
 
+# Build the API server
+RUN go build -o /app/api ./cmd/api
+
 # Build the orchestrator
 RUN go build -o /app/orchestrator ./cmd/orchestrator
-
-CMD ["/app/orchestrator"]

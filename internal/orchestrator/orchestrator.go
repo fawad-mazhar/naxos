@@ -31,6 +31,29 @@ type Orchestrator struct {
 	shutdownLock sync.RWMutex
 }
 
+type jobState struct {
+	taskStatuses map[string]models.TaskStatus
+	mu           sync.RWMutex
+}
+
+func newJobState() *jobState {
+	return &jobState{
+		taskStatuses: make(map[string]models.TaskStatus),
+	}
+}
+
+func (js *jobState) getStatus(taskID string) models.TaskStatus {
+	js.mu.RLock()
+	defer js.mu.RUnlock()
+	return js.taskStatuses[taskID]
+}
+
+func (js *jobState) setStatus(taskID string, status models.TaskStatus) {
+	js.mu.Lock()
+	defer js.mu.Unlock()
+	js.taskStatuses[taskID] = status
+}
+
 func NewOrchestrator(cfg *config.Config, db *postgres.Client, cache *leveldb.Client, queue *queue.RabbitMQ) *Orchestrator {
 	return &Orchestrator{
 		id:         uuid.New().String(),
@@ -145,9 +168,10 @@ func (o *Orchestrator) processJob(ctx context.Context, job *models.JobExecution)
 		return fmt.Errorf("failed to execute tasks: %w", err)
 	}
 
-	// Update job status to completed
-	if err := o.db.UpdateJobStatus(ctx, job.ID, models.JobStatusCompleted); err != nil {
-		return fmt.Errorf("failed to update job status: %w", err)
+	// All tasks completed successfully, update job status with end time
+	now := time.Now()
+	if err := o.db.CompleteJob(ctx, job.ID, now); err != nil {
+		return fmt.Errorf("failed to update job completion status: %w", err)
 	}
 
 	return nil
@@ -229,37 +253,11 @@ func (o *Orchestrator) IsShutdown() bool {
 	return o.isShutdown
 }
 
-// Add these functions to internal/orchestrator/orchestrator.go
-
 // executeTasks handles the execution of all tasks in the job
 func (o *Orchestrator) executeTasks(ctx context.Context, job *models.JobExecution, jobDef *models.JobDefinition) error {
-	// Initialize task statuses if not already done
-	if job.TaskStatuses == nil {
-		job.TaskStatuses = make(map[string]models.TaskStatus)
-	}
-
-	// Track completed tasks
-	completedTasks := make(map[string]bool)
-	var completedTasksMutex sync.Mutex
-
-	// Function to check if all dependencies of a task are met
-	dependenciesMet := func(taskID string) bool {
-		completedTasksMutex.Lock()
-		defer completedTasksMutex.Unlock()
-		for _, depID := range jobDef.Graph[taskID] {
-			if !completedTasks[depID] {
-				return false
-			}
-		}
-		return true
-	}
-
-	// Function to mark a task as completed
-	markCompleted := func(taskID string) {
-		completedTasksMutex.Lock()
-		completedTasks[taskID] = true
-		completedTasksMutex.Unlock()
-	}
+	// Create thread-safe state tracking
+	jobState := newJobState()
+	completedTasks := &sync.Map{}
 
 	// Create error channel for task execution errors
 	errChan := make(chan error, len(jobDef.Tasks))
@@ -267,9 +265,38 @@ func (o *Orchestrator) executeTasks(ctx context.Context, job *models.JobExecutio
 	// Create wait group for parallel task execution
 	var wg sync.WaitGroup
 
+	// Counter for remaining tasks with mutex protection
+	remainingCounter := &struct {
+		count int
+		mu    sync.Mutex
+	}{count: len(jobDef.Tasks)}
+
+	// Function to safely decrease remaining count
+	decrementRemaining := func() {
+		remainingCounter.mu.Lock()
+		remainingCounter.count--
+		remainingCounter.mu.Unlock()
+	}
+
+	// Function to check if dependencies are met
+	dependenciesMet := func(taskID string) bool {
+		for _, depID := range jobDef.Graph[taskID] {
+			if _, completed := completedTasks.Load(depID); !completed {
+				return false
+			}
+		}
+		return true
+	}
+
 	// Iterate until all tasks are completed or an error occurs
-	remainingTasks := len(jobDef.Tasks)
-	for remainingTasks > 0 {
+	for {
+		remainingCounter.mu.Lock()
+		if remainingCounter.count == 0 {
+			remainingCounter.mu.Unlock()
+			break
+		}
+		remainingCounter.mu.Unlock()
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -279,7 +306,12 @@ func (o *Orchestrator) executeTasks(ctx context.Context, job *models.JobExecutio
 			// Find tasks that are ready to execute
 			for taskID, task := range jobDef.Tasks {
 				// Skip if task is already completed or in progress
-				if completedTasks[taskID] || job.TaskStatuses[taskID] == models.TaskStatusRunning {
+				if _, completed := completedTasks.Load(taskID); completed {
+					continue
+				}
+
+				status := jobState.getStatus(taskID)
+				if status == models.TaskStatusRunning {
 					continue
 				}
 
@@ -288,20 +320,19 @@ func (o *Orchestrator) executeTasks(ctx context.Context, job *models.JobExecutio
 					continue
 				}
 
-				// Execute task in parallel (note we're creating a local copy for the goroutine)
-				taskCopy := task // Create a local copy to avoid race conditions
+				// Execute task in parallel
 				wg.Add(1)
-				go func(taskID string, task *models.Task) {
+				go func(taskID string, task models.Task) {
 					defer wg.Done()
 
-					if err := o.executeTask(ctx, taskID, task, job); err != nil {
+					if err := o.executeTask(ctx, taskID, &task, job, jobState); err != nil {
 						errChan <- fmt.Errorf("task %s failed: %w", taskID, err)
 						return
 					}
 
-					markCompleted(taskID)
-					remainingTasks--
-				}(taskID, &taskCopy)
+					completedTasks.Store(taskID, true)
+					decrementRemaining()
+				}(taskID, task)
 			}
 		}
 
@@ -322,8 +353,8 @@ func (o *Orchestrator) executeTasks(ctx context.Context, job *models.JobExecutio
 }
 
 // executeTask handles execution of a single task
-func (o *Orchestrator) executeTask(ctx context.Context, taskID string, task *models.Task, job *models.JobExecution) error {
-	// Create task execution record if it doesn't exist
+func (o *Orchestrator) executeTask(ctx context.Context, taskID string, task *models.Task, job *models.JobExecution, state *jobState) error {
+	// Create task execution record
 	taskExec := &models.TaskExecution{
 		ID:        uuid.New().String(),
 		JobID:     job.ID,
@@ -338,7 +369,7 @@ func (o *Orchestrator) executeTask(ctx context.Context, taskID string, task *mod
 	}
 
 	// Update task status to running
-	job.TaskStatuses[taskID] = models.TaskStatusRunning
+	state.setStatus(taskID, models.TaskStatusRunning)
 	if err := o.db.UpdateTaskStatus(ctx, taskExec.ID, models.TaskStatusRunning, nil); err != nil {
 		return fmt.Errorf("failed to update task status: %w", err)
 	}
@@ -346,7 +377,6 @@ func (o *Orchestrator) executeTask(ctx context.Context, taskID string, task *mod
 	// Execute task with retries
 	var lastErr error
 	for attempt := 0; attempt <= task.MaxRetry; attempt++ {
-		// Add exponential backoff for retries
 		if attempt > 0 {
 			backoffDuration := time.Duration(1<<uint(attempt-1)) * time.Second
 			select {
@@ -359,7 +389,7 @@ func (o *Orchestrator) executeTask(ctx context.Context, taskID string, task *mod
 		err := o.executeTaskFunction(ctx, task.FunctionName, job.Data)
 		if err == nil {
 			// Task completed successfully
-			job.TaskStatuses[taskID] = models.TaskStatusCompleted
+			state.setStatus(taskID, models.TaskStatusCompleted)
 			return o.db.UpdateTaskStatus(ctx, taskExec.ID, models.TaskStatusCompleted, nil)
 		}
 
@@ -368,7 +398,7 @@ func (o *Orchestrator) executeTask(ctx context.Context, taskID string, task *mod
 	}
 
 	// All retries failed
-	job.TaskStatuses[taskID] = models.TaskStatusFailed
+	state.setStatus(taskID, models.TaskStatusFailed)
 	return o.db.UpdateTaskStatus(ctx, taskExec.ID, models.TaskStatusFailed, lastErr)
 }
 
