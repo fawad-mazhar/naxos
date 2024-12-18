@@ -42,8 +42,6 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
-    environment:
-      CONFIG_FILE: /app/config.yaml
     command: /app/api
     volumes:
       - ./config.yaml:/app/config.yaml
@@ -60,8 +58,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    environment:
-      CONFIG_FILE: /app/config.yaml
     command: /app/orchestrator
     volumes:
       - ./config.yaml:/app/config.yaml
@@ -79,8 +75,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    environment:
-      CONFIG_FILE: /app/config.yaml
     command: /app/orchestrator
     volumes:
       - ./config.yaml:/app/config.yaml
