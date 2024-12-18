@@ -19,16 +19,18 @@ import (
 )
 
 type Orchestrator struct {
-	id           string
-	config       *config.Config
-	db           *postgres.Client
-	cache        *leveldb.Client
-	queue        *queue.RabbitMQ
-	workerPool   chan struct{}
-	workers      sync.WaitGroup
-	stopChan     chan struct{}
-	isShutdown   bool
-	shutdownLock sync.RWMutex
+	id                string
+	config            *config.Config
+	db                *postgres.Client
+	cache             *leveldb.Client
+	queue             *queue.RabbitMQ
+	workerPool        chan struct{}
+	workers           sync.WaitGroup
+	stopChan          chan struct{}
+	isShutdown        bool
+	shutdownLock      sync.RWMutex
+	healthCheckTicker *time.Ticker
+	ongoingJobs       sync.Map
 }
 
 type jobState struct {
@@ -81,6 +83,15 @@ func NewOrchestrator(cfg *config.Config, db *postgres.Client, cache *leveldb.Cli
 // Start begins the orchestrator's main processing loop
 func (o *Orchestrator) Start(ctx context.Context) error {
 	log.Printf("Starting orchestrator %s with %d workers", o.id, o.config.Worker.MaxWorkers)
+
+	// Publish started status
+	if err := o.publishStatus(models.OrchestratorStarted); err != nil {
+		log.Printf("Failed to publish start status: %v", err)
+	}
+
+	// Start health check ticker
+	o.healthCheckTicker = time.NewTicker(1 * time.Minute)
+	go o.runHealthChecks()
 
 	// Start consuming jobs from RabbitMQ
 	jobsChan, err := o.queue.ConsumeJobs(ctx)
@@ -140,6 +151,9 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 
 // processJob handles the execution of a single job
 func (o *Orchestrator) processJob(ctx context.Context, job *models.JobExecution) error {
+	o.ongoingJobs.Store(job.ID, job)
+	defer o.ongoingJobs.Delete(job.ID)
+
 	// Try to claim the job
 	claimed, err := o.db.ClaimJob(ctx, job.ID, o.id)
 	if err != nil {
@@ -155,16 +169,6 @@ func (o *Orchestrator) processJob(ctx context.Context, job *models.JobExecution)
 	jobDef, err := o.getJobDefinition(ctx, job.DefinitionID)
 	if err != nil {
 		return fmt.Errorf("failed to get job definition: %w", err)
-	}
-
-	// Cache job locally
-	jobData, err := json.Marshal(job)
-	if err != nil {
-		log.Printf("Warning: failed to marshal job for caching: %v", err)
-	} else {
-		if err := o.cache.Put(job.ID, jobData); err != nil {
-			log.Printf("Warning: failed to cache job %s: %v", job.ID, err)
-		}
 	}
 
 	// Create execution context with timeout
@@ -268,9 +272,19 @@ func (o *Orchestrator) recoverInProgressJobs(ctx context.Context) error {
 
 // Shutdown initiates a graceful shutdown of the orchestrator
 func (o *Orchestrator) Shutdown(timeout time.Duration) error {
+	// Publish stopping status
+	if err := o.publishStatus(models.OrchestratorStopping); err != nil {
+		log.Printf("Failed to publish stopping status: %v", err)
+	}
+
 	o.shutdownLock.Lock()
 	o.isShutdown = true
 	o.shutdownLock.Unlock()
+
+	// Stop health check ticker
+	if o.healthCheckTicker != nil {
+		o.healthCheckTicker.Stop()
+	}
 
 	// Signal main loop to stop
 	close(o.stopChan)
@@ -282,12 +296,20 @@ func (o *Orchestrator) Shutdown(timeout time.Duration) error {
 		close(done)
 	}()
 
+	var shutdownErr error
 	select {
 	case <-done:
-		return nil
+		shutdownErr = nil
 	case <-time.After(timeout):
-		return fmt.Errorf("shutdown timed out after %v", timeout)
+		shutdownErr = fmt.Errorf("shutdown timed out after %v", timeout)
 	}
+
+	// Publish final stopped status
+	if err := o.publishStatus(models.OrchestratorStopped); err != nil {
+		log.Printf("Failed to publish stopped status: %v", err)
+	}
+
+	return shutdownErr
 }
 
 // IsShutdown returns the current shutdown status
@@ -470,4 +492,54 @@ func (o *Orchestrator) executeTaskFunction(ctx context.Context, functionName str
 
 	// Execute the task function with context and data
 	return taskFn(ctx, data)
+}
+
+func (o *Orchestrator) publishStatus(event models.OrchestratorEventType) error {
+	activeJobs := 0
+	o.ongoingJobs.Range(func(key, value interface{}) bool {
+		activeJobs++
+		return true
+	})
+
+	// Create orchestrator status
+	orchStatus := &models.OrchestratorStatus{
+		ID:           o.id,
+		Event:        event,
+		Timestamp:    time.Now(),
+		WorkerCount:  o.config.Worker.MaxWorkers,
+		ActiveJobs:   activeJobs,
+		HealthStatus: "healthy",
+	}
+
+	// Create status message that wraps orchestrator status
+	statusMsg := &models.StatusMessage{
+		Type:      "orchestrator",
+		ID:        o.id,
+		Status:    string(event),
+		Timestamp: time.Now(),
+		Metadata:  orchStatus,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := o.queue.PublishStatus(ctx, statusMsg); err != nil {
+		return fmt.Errorf("failed to publish status: %w", err)
+	}
+
+	return nil
+}
+
+// Health check routine
+func (o *Orchestrator) runHealthChecks() {
+	for {
+		select {
+		case <-o.stopChan:
+			return
+		case <-o.healthCheckTicker.C:
+			if err := o.publishStatus(models.OrchestratorHealthy); err != nil {
+				log.Printf("Failed to publish health status: %v", err)
+			}
+		}
+	}
 }

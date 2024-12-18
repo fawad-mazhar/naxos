@@ -90,14 +90,17 @@ func (r *RabbitMQ) setupQueues() error {
 		return err
 	}
 
-	// Setup status queue similarly
+	// Setup status queue with message TTL
+	args := make(amqp.Table)
+	args["x-message-ttl"] = 72 * 60 * 60 * 1000 // 72 hours in milliseconds
+
 	_, err = r.statusChannel.QueueDeclare(
-		r.config.StatusQueue,
-		true,
-		false,
-		false,
-		false,
-		nil,
+		r.config.StatusQueue, // name
+		true,                 // durable
+		false,                // delete when unused
+		false,                // exclusive
+		false,                // no-wait
+		args,                 // arguments - including TTL
 	)
 	return err
 }
