@@ -36,6 +36,11 @@ type jobState struct {
 	mu           sync.RWMutex
 }
 
+type taskState struct {
+	status    models.TaskStatus
+	scheduled bool
+}
+
 const jobDefinitionCachePrefix = "jobdef:"
 
 // Helper method for job definition cache key
@@ -297,6 +302,7 @@ func (o *Orchestrator) executeTasks(ctx context.Context, job *models.JobExecutio
 	// Create thread-safe state tracking
 	jobState := newJobState()
 	completedTasks := &sync.Map{}
+	scheduledTasks := &sync.Map{} // Track which tasks have been scheduled
 
 	// Create error channel for task execution errors
 	errChan := make(chan error, len(jobDef.Tasks))
@@ -344,11 +350,17 @@ func (o *Orchestrator) executeTasks(ctx context.Context, job *models.JobExecutio
 		default:
 			// Find tasks that are ready to execute
 			for taskID, task := range jobDef.Tasks {
-				// Skip if task is already completed or in progress
+				// Skip if task is already completed
 				if _, completed := completedTasks.Load(taskID); completed {
 					continue
 				}
 
+				// Skip if task is already scheduled
+				if _, scheduled := scheduledTasks.LoadOrStore(taskID, true); scheduled {
+					continue
+				}
+
+				// Check if task is already running
 				status := jobState.getStatus(taskID)
 				if status == models.TaskStatusRunning {
 					continue
@@ -356,6 +368,7 @@ func (o *Orchestrator) executeTasks(ctx context.Context, job *models.JobExecutio
 
 				// Check if dependencies are met
 				if !dependenciesMet(taskID) {
+					scheduledTasks.Delete(taskID) // Allow task to be scheduled later
 					continue
 				}
 
