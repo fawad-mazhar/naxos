@@ -67,7 +67,7 @@ func loadTaskFunctions() (map[string]worker.TaskFunction, error) {
 
 func main() {
 	// Load configuration
-	cfg, err := config.Load("config.yaml")
+	cfg, err := config.Load("naxos.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}

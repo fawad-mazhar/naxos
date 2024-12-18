@@ -36,6 +36,13 @@ type jobState struct {
 	mu           sync.RWMutex
 }
 
+const jobDefinitionCachePrefix = "jobdef:"
+
+// Helper method for job definition cache key
+func getJobDefinitionCacheKey(definitionID string) string {
+	return fmt.Sprintf("%s%s", jobDefinitionCachePrefix, definitionID)
+}
+
 func newJobState() *jobState {
 	return &jobState{
 		taskStatuses: make(map[string]models.TaskStatus),
@@ -140,7 +147,7 @@ func (o *Orchestrator) processJob(ctx context.Context, job *models.JobExecution)
 	}
 
 	// Get job definition
-	jobDef, err := o.db.GetJobDefinition(ctx, job.DefinitionID)
+	jobDef, err := o.getJobDefinition(ctx, job.DefinitionID)
 	if err != nil {
 		return fmt.Errorf("failed to get job definition: %w", err)
 	}
@@ -175,6 +182,38 @@ func (o *Orchestrator) processJob(ctx context.Context, job *models.JobExecution)
 	}
 
 	return nil
+}
+
+func (o *Orchestrator) getJobDefinition(ctx context.Context, definitionID string) (*models.JobDefinition, error) {
+	cacheKey := getJobDefinitionCacheKey(definitionID)
+
+	// Try to get from cache first
+	cachedData, err := o.cache.Get(cacheKey)
+	if err == nil && cachedData != nil {
+		var jobDef models.JobDefinition
+		if err := json.Unmarshal(cachedData, &jobDef); err == nil {
+			log.Printf("Cache hit: retrieved job definition %s from cache", definitionID)
+			return &jobDef, nil
+		}
+		log.Printf("Warning: failed to unmarshal cached job definition: %v", err)
+	}
+
+	// Cache miss or error, get from database
+	jobDef, err := o.db.GetJobDefinition(ctx, definitionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get job definition from database: %w", err)
+	}
+
+	// Cache the job definition for future use
+	if data, err := json.Marshal(jobDef); err == nil {
+		if err := o.cache.Put(cacheKey, data); err != nil {
+			log.Printf("Warning: failed to cache job definition %s: %v", definitionID, err)
+		} else {
+			log.Printf("Cached job definition %s", definitionID)
+		}
+	}
+
+	return jobDef, nil
 }
 
 // recoverInProgressJobs attempts to recover jobs that were in progress during previous shutdown
