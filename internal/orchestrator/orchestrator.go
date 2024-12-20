@@ -493,12 +493,11 @@ func (o *Orchestrator) publishStatus(event models.OrchestratorEventType) error {
 
 	// Create orchestrator status
 	orchStatus := &models.OrchestratorStatus{
-		ID:           o.id,
-		Event:        event,
-		Timestamp:    time.Now(),
-		WorkerCount:  o.config.Worker.MaxWorkers,
-		ActiveJobs:   activeJobs,
-		HealthStatus: "healthy",
+		ID:          o.id,
+		Event:       event,
+		Timestamp:   time.Now(),
+		WorkerCount: o.config.Worker.MaxWorkers,
+		ActiveJobs:  activeJobs,
 	}
 
 	// Create status message that wraps orchestrator status

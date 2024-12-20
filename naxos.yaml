@@ -1,49 +1,50 @@
-# naxos.yaml
+# naxos.yaml - Configuration file for Naxos Job Orchestration System
 
-# System Configuration
-# Api Server
+# API Server Configuration
 server:
-  port: "8080"
-  readTimeout: 30
-  writeTimeout: 30
+  port: "8080"              # Port for the HTTP API server
+  readTimeout: 30           # HTTP read timeout in seconds
+  writeTimeout: 30          # HTTP write timeout in seconds
 
+# PostgreSQL Database Configuration
 postgres:
-  host: "postgres"
-  port: 5432
-  user: "naxos"
-  password: "naxos123"
-  dbname: "naxos"
-  sslmode: "disable"
+  host: "postgres"          # Database hostname (service name in docker-compose)
+  port: 5432               # PostgreSQL default port
+  user: "naxos"            # Database user
+  password: "naxos123"     # Database password
+  dbname: "naxos"          # Database name
+  sslmode: "disable"       # SSL mode for database connection
 
+# RabbitMQ Message Queue Configuration
 rabbitmq:
-  url: "amqp://naxos:naxos123@rabbitmq:5672/"
-  exchange: "naxos"
-  queue: "naxos.jobs"
-  jobsQueue: "naxos.jobs"
-  statusQueue: "naxos.status"
-  exchangeType: "direct"
+  url: "amqp://naxos:naxos123@rabbitmq:5672/"  # RabbitMQ connection URL
+  exchange: "naxos"        # Exchange name for message routing
+  jobsQueue: "naxos.jobs"  # Queue for job execution messages
+  statusQueue: "naxos.status"  # Queue for status updates (system events, health checks)
+  exchangeType: "direct"   # Exchange type for message routing
 
-# Local DB Cache
+# LevelDB Configuration (Local Cache)
 leveldb:
-  path: "./data/leveldb"
+  path: "./data/leveldb"   # Path for LevelDB storage files (cached job definitions)
 
-# Single Worker Definition
+# Worker Configuration
 worker:
-  maxWorkers: 10
-  maxRetries: 3
-  retryDelay: 5
-  shutdownTimeout: 30
+  maxWorkers: 10           # Maximum number of concurrent workers
+  maxRetries: 3            # Default retry attempts for failed tasks
+  retryDelay: 5           # Initial delay between retries in seconds
+  shutdownTimeout: 30      # Timeout for graceful shutdown in seconds
 
 # Job Definitions
 job_definitions:
-  - id: "sample-1"
-    name: "Sequential Task Chain"
+  # Sequential Task Chain Example
+  - id: "sample-1"                   # Unique identifier for the job
+    name: "Sequential Task Chain"     # Human-readable name
     tasks:
       task1:
         id: "task1"
         name: "First Task"
-        maxRetry: 3
-        functionName: "Task1"
+        maxRetry: 3                  # Maximum retry attempts for this task
+        functionName: "Task1"        # Maps to Task1 function in worker package
       task2:
         id: "task2"
         name: "Second Task"
@@ -54,11 +55,12 @@ job_definitions:
         name: "Third Task"
         maxRetry: 1
         functionName: "Task3"
-    graph:
-      task1: []
-      task2: ["task1"]
-      task3: ["task2"]
+    graph:                          # Task dependency graph
+      task1: []                     # No dependencies
+      task2: ["task1"]             # Depends on task1
+      task3: ["task2"]             # Depends on task2
 
+  # Parallel Task Execution Example
   - id: "sample-2"
     name: "Parallel Task Execution"
     tasks:
@@ -83,7 +85,7 @@ job_definitions:
         maxRetry: 1
         functionName: "Task4"
     graph:
-      task1: []
-      task2: ["task1"]
-      task3: ["task1"]
-      task4: ["task2", "task3"]
+      task1: []                     # Starts first
+      task2: ["task1"]             # Depends on task1
+      task3: ["task1"]             # Depends on task1 (parallel with task2)
+      task4: ["task2", "task3"]    # Depends on both task2 and task3

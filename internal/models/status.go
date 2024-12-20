@@ -32,10 +32,9 @@ const (
 )
 
 type OrchestratorStatus struct {
-	ID           string                `json:"id"`
-	Event        OrchestratorEventType `json:"event"`
-	Timestamp    time.Time             `json:"timestamp"`
-	WorkerCount  int                   `json:"workerCount"`
-	ActiveJobs   int                   `json:"activeJobs"`
-	HealthStatus string                `json:"healthStatus"`
+	ID          string                `json:"id"`
+	Event       OrchestratorEventType `json:"event"`
+	Timestamp   time.Time             `json:"timestamp"`
+	WorkerCount int                   `json:"workerCount"`
+	ActiveJobs  int                   `json:"activeJobs"`
 }

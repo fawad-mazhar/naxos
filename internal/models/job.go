@@ -2,7 +2,6 @@
 package models
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -61,14 +60,4 @@ type JobExecutionState struct {
 	Status       JobStatus   `json:"status"`
 	StartTime    time.Time   `json:"startTime"`
 	Tasks        []TaskState `json:"tasks"`
-}
-
-// ToJSON converts the job execution to JSON
-func (je *JobExecution) ToJSON() ([]byte, error) {
-	return json.Marshal(je)
-}
-
-// FromJSON populates the job execution from JSON
-func (je *JobExecution) FromJSON(data []byte) error {
-	return json.Unmarshal(data, je)
 }

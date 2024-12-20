@@ -19,11 +19,6 @@ type Client struct {
 	db *sql.DB
 }
 
-// JobDefinitions represents the root structure of the YAML file
-type JobDefinitions struct {
-	Definitions []models.JobDefinition `yaml:"job_definitions"`
-}
-
 func NewClient(cfg config.PostgresConfig) (*Client, error) {
 	connStr := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
