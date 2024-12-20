@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"reflect"
-	"strings"
 	"syscall"
 	"time"
 
@@ -27,37 +26,31 @@ func loadTaskFunctions() (map[string]worker.TaskFunction, error) {
 	taskFunctions := make(map[string]worker.TaskFunction)
 
 	// Get the type information for the TaskFunctions interface
-	// This is used to find all available task function implementations
 	pkgType := reflect.TypeOf((*worker.TaskFunctions)(nil)).Elem()
 
 	// Iterate through all methods in the interface
-	// Check each method for compatibility with the TaskFunction signature
 	for i := 0; i < pkgType.NumMethod(); i++ {
 		method := pkgType.Method(i)
 
-		// Verify the method signature matches our TaskFunction type:
-		// - Takes context.Context and map[string]interface{}
-		// - Returns error
+		// Verify the method signature matches our TaskFunction type
 		if method.Type.NumIn() == 2 &&
 			method.Type.In(0).String() == "context.Context" &&
 			method.Type.In(1).String() == "map[string]interface {}" &&
 			method.Type.NumOut() == 1 &&
 			method.Type.Out(0).String() == "error" {
 
-			// Convert method name to expected function name in job definitions
-			// For example: "Process" becomes "processFunction"
-			functionName := fmt.Sprintf("%sFunction", strings.ToLower(method.Name))
+			// Use the method name directly instead of converting to functionName
+			// This will match the task names in job definitions
+			functionName := method.Name
 
 			// Get the actual function implementation
 			fn := reflect.ValueOf(worker.GetTaskFunction(method.Name)).Interface().(func(context.Context, map[string]interface{}) error)
 
-			// Store the function in our map
 			taskFunctions[functionName] = fn
 			fmt.Printf("Loaded task function: %s\n", functionName)
 		}
 	}
 
-	// Ensure at least one task function was loaded
 	if len(taskFunctions) == 0 {
 		return nil, fmt.Errorf("no task functions found")
 	}
@@ -80,7 +73,7 @@ func main() {
 	defer db.Close()
 
 	// Initialize LevelDB client
-	cache, err := leveldb.NewClient(cfg.LevelDB, 24*time.Hour) // 24-hour TTL
+	cache, err := leveldb.NewClient(cfg.LevelDB, 24*time.Hour)
 	if err != nil {
 		log.Fatalf("Failed to initialize cache: %v", err)
 	}
@@ -93,34 +86,18 @@ func main() {
 	}
 	defer queue.Close()
 
-	// Create task registry
-	registry := worker.NewRegistry()
-
 	// Load task functions dynamically
 	taskFunctions, err := loadTaskFunctions()
 	if err != nil {
 		log.Fatalf("Failed to load task functions: %v", err)
 	}
 
-	// Register discovered task functions
-	for name, fn := range taskFunctions {
-		if err := registry.Register(name, fn); err != nil {
-			log.Fatalf("Failed to register task function %s: %v", name, err)
-		}
-	}
-
-	// Create task executor
-	executor := worker.NewTaskExecutor(registry, cfg.Worker.MaxWorkers, time.Duration(cfg.Worker.ShutdownTimeout)*time.Second)
-
-	// Create and start orchestrator
-	orch := orchestrator.NewOrchestrator(cfg, db, cache, queue)
+	// Create and start orchestrator with task functions
+	orch := orchestrator.NewOrchestrator(cfg, db, cache, queue, taskFunctions)
 
 	// Setup context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	// Start task executor
-	executor.Start(ctx)
 
 	// Start orchestrator
 	go func() {
@@ -137,14 +114,11 @@ func main() {
 
 	log.Printf("Received shutdown signal: %v", sig)
 
-	// Initiate shutdown
+	// Initiate graceful shutdown
 	shutdownTimeout := time.Duration(cfg.Worker.ShutdownTimeout) * time.Second
 	if err := orch.Shutdown(shutdownTimeout); err != nil {
 		log.Printf("Error during orchestrator shutdown: %v", err)
 	}
-
-	// Stop task executor
-	executor.Stop()
 
 	log.Println("Orchestrator shutdown complete")
 }
