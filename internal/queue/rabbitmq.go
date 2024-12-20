@@ -106,10 +106,6 @@ func (r *RabbitMQ) setupQueues() error {
 }
 
 // PublishJob publishes a job execution message to the RabbitMQ exchange.
-// It marshals the job execution data into JSON format and sends it to the
-// configured exchange with a routing key of "jobs". The message is marked
-// as persistent to ensure it is not lost in case of a broker restart.
-// Returns an error if marshalling or publishing fails.
 func (r *RabbitMQ) PublishJob(ctx context.Context, job *models.JobExecution) error {
 	data, err := json.Marshal(job)
 	if err != nil {
