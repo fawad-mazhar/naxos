@@ -31,6 +31,7 @@ type Orchestrator struct {
 	shutdownLock      sync.RWMutex
 	healthCheckTicker *time.Ticker
 	ongoingJobs       sync.Map
+	taskFunctions     map[string]worker.TaskFunction
 }
 
 type jobState struct {
@@ -38,15 +39,9 @@ type jobState struct {
 	mu           sync.RWMutex
 }
 
-type taskState struct {
-	status    models.TaskStatus
-	scheduled bool
-}
-
-const jobDefinitionCachePrefix = "jobdef:"
-
 // Helper method for job definition cache key
 func getJobDefinitionCacheKey(definitionID string) string {
+	const jobDefinitionCachePrefix = "jobdef:"
 	return fmt.Sprintf("%s%s", jobDefinitionCachePrefix, definitionID)
 }
 
@@ -68,15 +63,16 @@ func (js *jobState) setStatus(taskID string, status models.TaskStatus) {
 	js.taskStatuses[taskID] = status
 }
 
-func NewOrchestrator(cfg *config.Config, db *postgres.Client, cache *leveldb.Client, queue *queue.RabbitMQ) *Orchestrator {
+func NewOrchestrator(cfg *config.Config, db *postgres.Client, cache *leveldb.Client, queue *queue.RabbitMQ, taskFunctions map[string]worker.TaskFunction) *Orchestrator {
 	return &Orchestrator{
-		id:         uuid.New().String(),
-		config:     cfg,
-		db:         db,
-		cache:      cache,
-		queue:      queue,
-		workerPool: make(chan struct{}, cfg.Worker.MaxWorkers),
-		stopChan:   make(chan struct{}),
+		id:            uuid.New().String(),
+		config:        cfg,
+		db:            db,
+		cache:         cache,
+		queue:         queue,
+		workerPool:    make(chan struct{}, cfg.Worker.MaxWorkers),
+		stopChan:      make(chan struct{}),
+		taskFunctions: taskFunctions,
 	}
 }
 
@@ -478,20 +474,14 @@ func (o *Orchestrator) executeTask(ctx context.Context, taskID string, task *mod
 
 // executeTaskFunction executes the actual task function
 func (o *Orchestrator) executeTaskFunction(ctx context.Context, functionName string, data map[string]interface{}) error {
-	// Get task function from registry
-	fn := worker.GetTaskFunction(functionName)
-	if fn == nil {
+	// Get task function from our map
+	fn, exists := o.taskFunctions[functionName]
+	if !exists {
 		return fmt.Errorf("task function %s not found", functionName)
 	}
 
-	// Convert the interface{} to the actual function type
-	taskFn, ok := fn.(func(context.Context, map[string]interface{}) error)
-	if !ok {
-		return fmt.Errorf("invalid task function type for %s", functionName)
-	}
-
 	// Execute the task function with context and data
-	return taskFn(ctx, data)
+	return fn(ctx, data)
 }
 
 func (o *Orchestrator) publishStatus(event models.OrchestratorEventType) error {
@@ -503,12 +493,11 @@ func (o *Orchestrator) publishStatus(event models.OrchestratorEventType) error {
 
 	// Create orchestrator status
 	orchStatus := &models.OrchestratorStatus{
-		ID:           o.id,
-		Event:        event,
-		Timestamp:    time.Now(),
-		WorkerCount:  o.config.Worker.MaxWorkers,
-		ActiveJobs:   activeJobs,
-		HealthStatus: "healthy",
+		ID:          o.id,
+		Event:       event,
+		Timestamp:   time.Now(),
+		WorkerCount: o.config.Worker.MaxWorkers,
+		ActiveJobs:  activeJobs,
 	}
 
 	// Create status message that wraps orchestrator status

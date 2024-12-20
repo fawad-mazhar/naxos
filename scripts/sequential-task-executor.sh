@@ -1,4 +1,5 @@
 #!/bin/bash
+# scripts/sequential-task-executor.sh
 
 # Function to generate a random string
 random_string() {

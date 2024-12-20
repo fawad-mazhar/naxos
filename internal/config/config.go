@@ -16,11 +16,7 @@ type Config struct {
 	RabbitMQ       RabbitMQConfig         `yaml:"rabbitmq"`
 	LevelDB        LevelDBConfig          `yaml:"leveldb"`
 	Worker         WorkerConfig           `yaml:"worker"`
-	JobDefinitions []models.JobDefinition `yaml:"job_definitions"` // Changed this
-}
-
-type JobDefinitions struct {
-	Definitions []models.JobDefinition `yaml:"job_definitions"`
+	JobDefinitions []models.JobDefinition `yaml:"job_definitions"`
 }
 
 // ServerConfig holds HTTP server configuration
@@ -44,7 +40,6 @@ type PostgresConfig struct {
 type RabbitMQConfig struct {
 	URL          string `yaml:"url"`
 	Exchange     string `yaml:"exchange"`
-	Queue        string `yaml:"queue"`
 	JobsQueue    string `yaml:"jobsQueue"`
 	StatusQueue  string `yaml:"statusQueue"`
 	ExchangeType string `yaml:"exchangeType"`
@@ -58,8 +53,6 @@ type LevelDBConfig struct {
 // WorkerConfig holds worker configuration
 type WorkerConfig struct {
 	MaxWorkers      int `yaml:"maxWorkers"`
-	MaxRetries      int `yaml:"maxRetries"`
-	RetryDelay      int `yaml:"retryDelay"`
 	ShutdownTimeout int `yaml:"shutdownTimeout"`
 }
 

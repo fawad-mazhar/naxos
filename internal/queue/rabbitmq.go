@@ -105,8 +105,9 @@ func (r *RabbitMQ) setupQueues() error {
 	return err
 }
 
+// PublishJob publishes a job execution message to the RabbitMQ exchange.
 func (r *RabbitMQ) PublishJob(ctx context.Context, job *models.JobExecution) error {
-	data, err := job.ToJSON()
+	data, err := json.Marshal(job)
 	if err != nil {
 		return fmt.Errorf("failed to marshal job: %w", err)
 	}
