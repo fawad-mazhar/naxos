@@ -1,4 +1,18 @@
 # Naxos
+
+> ⚠️ **Development Status**: This repository is currently under active development (as of January 2025). Features and APIs may change without notice.
+
+## Overview
+
+Naxos is a distributed task orchestration system designed for high-performance parallel and sequential workflow execution. It provides:
+
+- **Distributed Architecture**: Multi-node orchestration with worker management
+- **Flexible Task Execution**: Support for both parallel and sequential task workflows
+- **Fault Tolerance**: Built-in retry mechanisms and failure handling
+- **Scalable Storage**: Integration with PostgreSQL for persistence and RabbitMQ for message queuing
+- **Local Caching**: LevelDB-based caching for improved performance
+- **RESTful API**: HTTP interface for job submission and management
+
 ---
 
 Fawad Mazhar <fawadmazhar@hotmail.com> 2024-2025
