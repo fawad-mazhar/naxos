@@ -1,5 +1,11 @@
 # Naxos
 
+---
+
+Fawad Mazhar <fawadmazhar@hotmail.com> 2024-2025
+
+---
+
 > ⚠️ **Development Status**: This repository is currently under active development (as of January 2025). Features and APIs may change without notice.
 
 ## Overview
@@ -13,11 +19,6 @@ Naxos is a distributed task orchestration system designed for high-performance p
 - **Local Caching**: LevelDB-based caching for improved performance
 - **RESTful API**: HTTP interface for job submission and management
 
----
-
-Fawad Mazhar <fawadmazhar@hotmail.com> 2024-2025
-
----
 
 ## System Design
 <details>
