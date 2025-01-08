@@ -1,4 +1,4 @@
-# Naxos
+# Naxos - Distributed Job Orchestration System
 
 ---
 
@@ -8,17 +8,19 @@ Fawad Mazhar <fawadmazhar@hotmail.com> 2024-2025
 
 > ⚠️ **Development Status**: This repository is currently under active development (as of January 2025). Features and APIs may change without notice.
 
-## Overview
+Naxos is a lightweight distributed job orchestration system written in Go that manages the execution of task sequences with persistent state handling and a RESTful API interface. It supports both sequential and parallel task execution with dependency management.
 
-Naxos is a distributed task orchestration system designed for high-performance parallel and sequential workflow execution. It provides:
 
-- **Distributed Architecture**: Multi-node orchestration with worker management
-- **Flexible Task Execution**: Support for both parallel and sequential task workflows
-- **Fault Tolerance**: Built-in retry mechanisms and failure handling
-- **Scalable Storage**: Integration with PostgreSQL for persistence and RabbitMQ for message queuing
-- **Local Caching**: LevelDB-based caching for improved performance
-- **RESTful API**: HTTP interface for job submission and management
+## Features
 
+- **Job Orchestration**: Define and execute sequences of tasks with dependencies
+- **Persistent Storage**: State management using PostgreSQL
+- **Local Caching**: Fast job definition retrieval using LevelDB
+- **Message Queue**: RabbitMQ for job distribution and status updates
+- **Concurrent Execution**: Configurable worker pool for parallel job processing
+- **State Recovery**: Automatic recovery of interrupted jobs after system restart
+- **Health Monitoring**: System and orchestrator health checks
+- **RESTful API**: HTTP interface for job management and monitoring
 
 ## System Design
 <details>
@@ -119,3 +121,55 @@ Naxos is a distributed task orchestration system designed for high-performance p
   3. `Third Task` executes last with 1 retry attempt
   4. Each task must complete successfully before the next task begins
 </details>
+
+## Getting Started
+
+### Prerequisites
+- Docker and Docker Compose
+- Go 1.21 or later (for development)
+
+### Running with Docker Compose
+1. Clone the repository
+```bash
+git clone https://github.com/fawad-mazhar/naxos.git
+cd naxos
+```
+
+2. Start the system
+```bash
+docker-compose up -d
+```
+
+## API Endpoints
+
+### Job Management
+- `POST /api/v1/job-definitions` - Register new job definition
+- `GET /api/v1/job-definitions/{id}` - Get job definition
+- `POST /api/v1/jobs/{id}/execute` - Execute a job
+- `GET /api/v1/jobs/{id}/status` - Get job execution status
+
+### System Status
+- `GET /api/v1/system/status` - Get system status
+- `GET /health` - Health check endpoint
+
+## Example Usage
+
+Execute a job:
+```bash
+curl -X POST http://localhost:8080/api/v1/jobs/sample-1/execute -d '{"param": "value"}'
+```
+
+Check job status:
+```bash
+curl http://localhost:8080/api/v1/jobs/{execution-id}/status
+```
+
+### Building
+```bash
+go build -o bin/api cmd/api/main.go
+go build -o bin/orchestrator cmd/orchestrator/main.go
+```
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

@@ -143,6 +143,6 @@ func (c *Client) cleanup() {
 	}
 
 	for _, key := range keysToDelete {
-		c.db.Delete(key, nil)
+		c.Delete(string(key))
 	}
 }
