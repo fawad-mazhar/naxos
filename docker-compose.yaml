@@ -40,6 +40,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    environment:
+      NAXOS_POSTGRES_URL: postgresql://naxos:naxos123@postgres:5432/naxos?sslmode=disable # mandatory
+      NAXOS_RABBITMQ_URL: amqp://naxos:naxos123@rabbitmq:5672/ # mandatory
     ports:
       - "8080:8080"
     command: /app/api
@@ -56,6 +59,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    environment:
+      NAXOS_POSTGRES_URL: postgresql://naxos:naxos123@postgres:5432/naxos?sslmode=disable # mandatory
+      NAXOS_RABBITMQ_URL: amqp://naxos:naxos123@rabbitmq:5672/ # mandatory
     command: /app/orchestrator
     volumes:
       - leveldb_data1:/app/data/leveldb
@@ -72,6 +78,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    environment:
+      NAXOS_POSTGRES_URL: postgresql://naxos:naxos123@postgres:5432/naxos?sslmode=disable # mandatory
+      NAXOS_RABBITMQ_URL: amqp://naxos:naxos123@rabbitmq:5672/ # mandatory
     command: /app/orchestrator
     volumes:
       - leveldb_data2:/app/data/leveldb

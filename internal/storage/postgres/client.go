@@ -25,12 +25,7 @@ type JobDefinitions struct {
 }
 
 func NewClient(cfg config.PostgresConfig) (*Client, error) {
-	connStr := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DBName, cfg.SSLMode,
-	)
-
-	db, err := sql.Open("postgres", connStr)
+	db, err := sql.Open("postgres", cfg.URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to postgres: %w", err)
 	}

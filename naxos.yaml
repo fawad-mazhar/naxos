@@ -1,40 +1,5 @@
 # naxos.yaml - Configuration file for Naxos Job Orchestration System
 
-# API Server Configuration
-server:
-  port: "8080"              # Port for the HTTP API server
-  readTimeout: 30           # HTTP read timeout in seconds
-  writeTimeout: 30          # HTTP write timeout in seconds
-
-# PostgreSQL Database Configuration
-postgres:
-  host: "postgres"          # Database hostname (service name in docker-compose)
-  port: 5432               # PostgreSQL default port
-  user: "naxos"            # Database user
-  password: "naxos123"     # Database password
-  dbname: "naxos"          # Database name
-  sslmode: "disable"       # SSL mode for database connection
-
-# RabbitMQ Message Queue Configuration
-rabbitmq:
-  url: "amqp://naxos:naxos123@rabbitmq:5672/"  # RabbitMQ connection URL
-  exchange: "naxos"        # Exchange name for message routing
-  jobsQueue: "naxos.jobs"  # Queue for job execution messages
-  statusQueue: "naxos.status"  # Queue for status updates (system events, health checks)
-  exchangeType: "direct"   # Exchange type for message routing
-
-# LevelDB Configuration (Local Cache)
-leveldb:
-  path: "./data/leveldb"   # Path for LevelDB storage files (cached job definitions)
-
-# Worker Configuration
-worker:
-  maxWorkers: 10           # Maximum number of concurrent workers
-  maxRetries: 3            # Default retry attempts for failed tasks
-  retryDelay: 5           # Initial delay between retries in seconds
-  shutdownTimeout: 30      # Timeout for graceful shutdown in seconds
-
-# Job Definitions
 job_definitions:
   # Sequential Task Chain Example
   - id: "sample-1"                   # Unique identifier for the job
