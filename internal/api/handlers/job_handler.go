@@ -31,12 +31,6 @@ func (h *JobHandler) CreateJobDefinition(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Validate job definition
-	if err := validateJobDefinition(&jobDef); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
 	if err := h.db.StoreJobDefinition(r.Context(), &jobDef); err != nil {
 		http.Error(w, "failed to store job definition", http.StatusInternalServerError)
 		return
@@ -107,12 +101,6 @@ func (h *JobHandler) GetJobStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
-}
-
-func validateJobDefinition(jobDef *models.JobDefinition) error {
-	// Implementation of job definition validation
-	// Check for cycles in dependency graph, valid task configurations, etc.
-	return nil
 }
 
 func (h *JobHandler) GetJobDefinition(w http.ResponseWriter, r *http.Request) {

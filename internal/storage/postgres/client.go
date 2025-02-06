@@ -44,16 +44,31 @@ func (c *Client) Close() error {
 // Job related functions
 
 func (c *Client) StoreJobDefinition(ctx context.Context, job *models.JobDefinition) error {
-	tasks, err := json.Marshal(job.Tasks)
+	// Validate and normalize the job definition
+	normalizedJob, err := models.ValidateAndNormalize(job)
+	if err != nil {
+		return fmt.Errorf("job definition validation failed: %w", err)
+	}
+
+	// Marshal the normalized job data
+	tasks, err := json.Marshal(normalizedJob.Tasks)
 	if err != nil {
 		return fmt.Errorf("failed to marshal tasks: %w", err)
 	}
 
-	graph, err := json.Marshal(job.Graph)
+	graph, err := json.Marshal(normalizedJob.Graph)
 	if err != nil {
 		return fmt.Errorf("failed to marshal graph: %w", err)
 	}
 
+	// Begin transaction
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Insert or update job definition
 	query := `
 		INSERT INTO job_definitions (id, name, tasks, graph, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, NOW(), NOW())
@@ -63,8 +78,22 @@ func (c *Client) StoreJobDefinition(ctx context.Context, job *models.JobDefiniti
 			graph = EXCLUDED.graph,
 			updated_at = NOW()`
 
-	_, err = c.db.ExecContext(ctx, query, job.ID, job.Name, tasks, graph)
-	return err
+	_, err = tx.ExecContext(ctx, query,
+		normalizedJob.ID,
+		normalizedJob.Name,
+		tasks,
+		graph,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to store job definition: %w", err)
+	}
+
+	// Commit transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
 }
 
 func (c *Client) LoadJobDefinitions(ctx context.Context, jobDefs []models.JobDefinition) error {
