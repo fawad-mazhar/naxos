@@ -1,4 +1,4 @@
-// cmd/orchestrator/main.go
+// cmd/runner/main.go
 package main
 
 import (
@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/fawad-mazhar/naxos/internal/config"
-	"github.com/fawad-mazhar/naxos/internal/orchestrator"
 	"github.com/fawad-mazhar/naxos/internal/queue"
+	"github.com/fawad-mazhar/naxos/internal/runner"
 	"github.com/fawad-mazhar/naxos/internal/storage/leveldb"
 	"github.com/fawad-mazhar/naxos/internal/storage/postgres"
 	"github.com/fawad-mazhar/naxos/internal/worker"
@@ -92,17 +92,17 @@ func main() {
 		log.Fatalf("Failed to load task functions: %v", err)
 	}
 
-	// Create and start orchestrator with task functions
-	orch := orchestrator.NewOrchestrator(cfg, db, cache, queue, taskFunctions)
+	// Create and start runner with task functions
+	runner := runner.NewRunner(cfg, db, cache, queue, taskFunctions)
 
 	// Setup context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start orchestrator
+	// Start runner
 	go func() {
-		if err := orch.Start(ctx); err != nil {
-			log.Printf("Orchestrator stopped with error: %v", err)
+		if err := runner.Start(ctx); err != nil {
+			log.Printf("Runner stopped with error: %v", err)
 			cancel()
 		}
 	}()
@@ -116,9 +116,9 @@ func main() {
 
 	// Initiate graceful shutdown
 	shutdownTimeout := time.Duration(cfg.Worker.ShutdownTimeout) * time.Second
-	if err := orch.Shutdown(shutdownTimeout); err != nil {
-		log.Printf("Error during orchestrator shutdown: %v", err)
+	if err := runner.Shutdown(shutdownTimeout); err != nil {
+		log.Printf("Error during runner shutdown: %v", err)
 	}
 
-	log.Println("Orchestrator shutdown complete")
+	log.Println("Runner shutdown complete")
 }

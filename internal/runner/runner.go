@@ -1,5 +1,5 @@
-// internal/orchestrator/orchestrator.go
-package orchestrator
+// internal/runner/runner.go
+package runner
 
 import (
 	"context"
@@ -18,7 +18,7 @@ import (
 	"github.com/google/uuid"
 )
 
-type Orchestrator struct {
+type Runner struct {
 	id                string
 	config            *config.Config
 	db                *postgres.Client
@@ -63,8 +63,8 @@ func (js *jobState) setStatus(taskID string, status models.TaskStatus) {
 	js.taskStatuses[taskID] = status
 }
 
-func NewOrchestrator(cfg *config.Config, db *postgres.Client, cache *leveldb.Client, queue *queue.RabbitMQ, taskFunctions map[string]worker.TaskFunction) *Orchestrator {
-	return &Orchestrator{
+func NewRunner(cfg *config.Config, db *postgres.Client, cache *leveldb.Client, queue *queue.RabbitMQ, taskFunctions map[string]worker.TaskFunction) *Runner {
+	return &Runner{
 		id:            uuid.New().String(),
 		config:        cfg,
 		db:            db,
@@ -76,27 +76,27 @@ func NewOrchestrator(cfg *config.Config, db *postgres.Client, cache *leveldb.Cli
 	}
 }
 
-// Start begins the orchestrator's main processing loop
-func (o *Orchestrator) Start(ctx context.Context) error {
-	log.Printf("Starting orchestrator %s with %d workers", o.id, o.config.Worker.MaxWorkers)
+// Start begins the runner's main processing loop
+func (r *Runner) Start(ctx context.Context) error {
+	log.Printf("Starting runner %s with %d workers", r.id, r.config.Worker.MaxWorkers)
 
 	// Publish started status
-	if err := o.publishStatus(models.OrchestratorStarted); err != nil {
+	if err := r.publishStatus(models.RunnerStarted); err != nil {
 		log.Printf("Failed to publish start status: %v", err)
 	}
 
 	// Start health check ticker
-	o.healthCheckTicker = time.NewTicker(1 * time.Minute)
-	go o.runHealthChecks()
+	r.healthCheckTicker = time.NewTicker(1 * time.Minute)
+	go r.runHealthChecks()
 
 	// Start consuming jobs from RabbitMQ
-	jobsChan, err := o.queue.ConsumeJobs(ctx)
+	jobsChan, err := r.queue.ConsumeJobs(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to start consuming jobs: %w", err)
 	}
 
 	// Recovery of in-progress jobs from previous sessions
-	if err := o.recoverInProgressJobs(ctx); err != nil {
+	if err := r.recoverInProgressJobs(ctx); err != nil {
 		log.Printf("Warning: job recovery failed: %v", err)
 	}
 
@@ -104,7 +104,7 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-o.stopChan:
+		case <-r.stopChan:
 			return nil
 		case delivery, ok := <-jobsChan:
 			if !ok {
@@ -121,15 +121,15 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 
 			// Try to acquire worker slot
 			select {
-			case o.workerPool <- struct{}{}:
-				o.workers.Add(1)
+			case r.workerPool <- struct{}{}:
+				r.workers.Add(1)
 				go func(job models.JobExecution) {
 					defer func() {
-						<-o.workerPool // Release worker slot
-						o.workers.Done()
+						<-r.workerPool // Release worker slot
+						r.workers.Done()
 					}()
 
-					if err := o.processJob(ctx, &job); err != nil {
+					if err := r.processJob(ctx, &job); err != nil {
 						log.Printf("Error processing job %s: %v", job.ID, err)
 						delivery.Nack(false, true) // Requeue on processing error
 						return
@@ -146,35 +146,35 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 }
 
 // processJob handles the execution of a single job
-func (o *Orchestrator) processJob(ctx context.Context, job *models.JobExecution) error {
-	o.ongoingJobs.Store(job.ID, job)
-	defer o.ongoingJobs.Delete(job.ID)
+func (r *Runner) processJob(ctx context.Context, job *models.JobExecution) error {
+	r.ongoingJobs.Store(job.ID, job)
+	defer r.ongoingJobs.Delete(job.ID)
 
 	// Try to claim the job
-	claimed, err := o.db.ClaimJob(ctx, job.ID, o.id)
+	claimed, err := r.db.ClaimJob(ctx, job.ID, r.id)
 	if err != nil {
 		return fmt.Errorf("failed to claim job: %w", err)
 	}
 
 	if !claimed {
-		// Job was already claimed by another orchestrator
+		// Job was already claimed by another runner
 		return nil
 	}
 
 	// Get job definition
-	jobDef, err := o.getJobDefinition(ctx, job.DefinitionID)
+	jobDef, err := r.getJobDefinition(ctx, job.DefinitionID)
 	if err != nil {
 		return fmt.Errorf("failed to get job definition: %w", err)
 	}
 
 	// Create execution context with timeout
-	jobCtx, cancel := context.WithTimeout(ctx, time.Duration(o.config.Worker.ShutdownTimeout)*time.Second)
+	jobCtx, cancel := context.WithTimeout(ctx, time.Duration(r.config.Worker.ShutdownTimeout)*time.Second)
 	defer cancel()
 
 	// Execute job tasks
-	if err := o.executeTasks(jobCtx, job, jobDef); err != nil {
+	if err := r.executeTasks(jobCtx, job, jobDef); err != nil {
 		// Update job status to failed
-		if updateErr := o.db.UpdateJobStatus(ctx, job.ID, models.JobStatusFailed); updateErr != nil {
+		if updateErr := r.db.UpdateJobStatus(ctx, job.ID, models.JobStatusFailed); updateErr != nil {
 			log.Printf("Error updating failed job status: %v", updateErr)
 		}
 		return fmt.Errorf("failed to execute tasks: %w", err)
@@ -182,18 +182,18 @@ func (o *Orchestrator) processJob(ctx context.Context, job *models.JobExecution)
 
 	// All tasks completed successfully, update job status with end time
 	now := time.Now()
-	if err := o.db.CompleteJob(ctx, job.ID, now); err != nil {
+	if err := r.db.CompleteJob(ctx, job.ID, now); err != nil {
 		return fmt.Errorf("failed to update job completion status: %w", err)
 	}
 
 	return nil
 }
 
-func (o *Orchestrator) getJobDefinition(ctx context.Context, definitionID string) (*models.JobDefinition, error) {
+func (r *Runner) getJobDefinition(ctx context.Context, definitionID string) (*models.JobDefinition, error) {
 	cacheKey := getJobDefinitionCacheKey(definitionID)
 
 	// Try to get from cache first
-	cachedData, err := o.cache.Get(cacheKey)
+	cachedData, err := r.cache.Get(cacheKey)
 	if err == nil && cachedData != nil {
 		var jobDef models.JobDefinition
 		if err := json.Unmarshal(cachedData, &jobDef); err == nil {
@@ -204,14 +204,14 @@ func (o *Orchestrator) getJobDefinition(ctx context.Context, definitionID string
 	}
 
 	// Cache miss or error, get from database
-	jobDef, err := o.db.GetJobDefinition(ctx, definitionID)
+	jobDef, err := r.db.GetJobDefinition(ctx, definitionID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get job definition from database: %w", err)
 	}
 
 	// Cache the job definition for future use
 	if data, err := json.Marshal(jobDef); err == nil {
-		if err := o.cache.Put(cacheKey, data); err != nil {
+		if err := r.cache.Put(cacheKey, data); err != nil {
 			log.Printf("Warning: failed to cache job definition %s: %v", definitionID, err)
 		} else {
 			log.Printf("Cached job definition %s", definitionID)
@@ -222,27 +222,27 @@ func (o *Orchestrator) getJobDefinition(ctx context.Context, definitionID string
 }
 
 // recoverInProgressJobs attempts to recover jobs that were in progress during previous shutdown
-func (o *Orchestrator) recoverInProgressJobs(ctx context.Context) error {
-	jobs, err := o.db.GetInProgressJobs(ctx)
+func (r *Runner) recoverInProgressJobs(ctx context.Context) error {
+	jobs, err := r.db.GetInProgressJobs(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get in-progress jobs: %w", err)
 	}
 
 	for _, job := range jobs {
 		// Try to claim this stale job
-		claimed, err := o.db.ClaimStaleJob(ctx, job.ID, o.id)
+		claimed, err := r.db.ClaimStaleJob(ctx, job.ID, r.id)
 		if err != nil {
 			log.Printf("Error claiming stale job %s: %v", job.ID, err)
 			continue
 		}
 
 		if !claimed {
-			// Job was either claimed by another orchestrator or is no longer stale
+			// Job was either claimed by another runner or is no longer stale
 			continue
 		}
 
 		// Get the current state of tasks for this job
-		tasks, err := o.db.GetJobTasks(ctx, job.ID)
+		tasks, err := r.db.GetJobTasks(ctx, job.ID)
 		if err != nil {
 			log.Printf("Error getting tasks for job %s: %v", job.ID, err)
 			continue
@@ -255,7 +255,7 @@ func (o *Orchestrator) recoverInProgressJobs(ctx context.Context) error {
 		}
 
 		// Re-queue the job for processing
-		if err := o.queue.PublishJob(ctx, job); err != nil {
+		if err := r.queue.PublishJob(ctx, job); err != nil {
 			log.Printf("Failed to requeue job %s: %v", job.ID, err)
 			continue
 		}
@@ -266,29 +266,29 @@ func (o *Orchestrator) recoverInProgressJobs(ctx context.Context) error {
 	return nil
 }
 
-// Shutdown initiates a graceful shutdown of the orchestrator
-func (o *Orchestrator) Shutdown(timeout time.Duration) error {
+// Shutdown initiates a graceful shutdown of the runner
+func (r *Runner) Shutdown(timeout time.Duration) error {
 	// Publish stopping status
-	if err := o.publishStatus(models.OrchestratorStopping); err != nil {
+	if err := r.publishStatus(models.RunnerStopping); err != nil {
 		log.Printf("Failed to publish stopping status: %v", err)
 	}
 
-	o.shutdownLock.Lock()
-	o.isShutdown = true
-	o.shutdownLock.Unlock()
+	r.shutdownLock.Lock()
+	r.isShutdown = true
+	r.shutdownLock.Unlock()
 
 	// Stop health check ticker
-	if o.healthCheckTicker != nil {
-		o.healthCheckTicker.Stop()
+	if r.healthCheckTicker != nil {
+		r.healthCheckTicker.Stop()
 	}
 
 	// Signal main loop to stop
-	close(o.stopChan)
+	close(r.stopChan)
 
 	// Wait for ongoing jobs with timeout
 	done := make(chan struct{})
 	go func() {
-		o.workers.Wait()
+		r.workers.Wait()
 		close(done)
 	}()
 
@@ -301,7 +301,7 @@ func (o *Orchestrator) Shutdown(timeout time.Duration) error {
 	}
 
 	// Publish final stopped status
-	if err := o.publishStatus(models.OrchestratorStopped); err != nil {
+	if err := r.publishStatus(models.RunnerStopped); err != nil {
 		log.Printf("Failed to publish stopped status: %v", err)
 	}
 
@@ -309,14 +309,14 @@ func (o *Orchestrator) Shutdown(timeout time.Duration) error {
 }
 
 // IsShutdown returns the current shutdown status
-func (o *Orchestrator) IsShutdown() bool {
-	o.shutdownLock.RLock()
-	defer o.shutdownLock.RUnlock()
-	return o.isShutdown
+func (r *Runner) IsShutdown() bool {
+	r.shutdownLock.RLock()
+	defer r.shutdownLock.RUnlock()
+	return r.isShutdown
 }
 
 // executeTasks handles the execution of all tasks in the job
-func (o *Orchestrator) executeTasks(ctx context.Context, job *models.JobExecution, jobDef *models.JobDefinition) error {
+func (r *Runner) executeTasks(ctx context.Context, job *models.JobExecution, jobDef *models.JobDefinition) error {
 	// Create thread-safe state tracking
 	jobState := newJobState()
 	completedTasks := &sync.Map{}
@@ -395,7 +395,7 @@ func (o *Orchestrator) executeTasks(ctx context.Context, job *models.JobExecutio
 				go func(taskID string, task models.Task) {
 					defer wg.Done()
 
-					if err := o.executeTask(ctx, taskID, &task, job, jobState); err != nil {
+					if err := r.executeTask(ctx, taskID, &task, job, jobState); err != nil {
 						errChan <- fmt.Errorf("task %s failed: %w", taskID, err)
 						return
 					}
@@ -423,7 +423,7 @@ func (o *Orchestrator) executeTasks(ctx context.Context, job *models.JobExecutio
 }
 
 // executeTask handles execution of a single task
-func (o *Orchestrator) executeTask(ctx context.Context, taskID string, task *models.Task, job *models.JobExecution, state *jobState) error {
+func (r *Runner) executeTask(ctx context.Context, taskID string, task *models.Task, job *models.JobExecution, state *jobState) error {
 	// Create task execution record
 	taskExec := &models.TaskExecution{
 		ID:        uuid.New().String(),
@@ -434,13 +434,13 @@ func (o *Orchestrator) executeTask(ctx context.Context, taskID string, task *mod
 	}
 
 	// Store the initial task execution record
-	if err := o.db.CreateTaskExecution(ctx, taskExec); err != nil {
+	if err := r.db.CreateTaskExecution(ctx, taskExec); err != nil {
 		return fmt.Errorf("failed to create task execution: %w", err)
 	}
 
 	// Update task status to running
 	state.setStatus(taskID, models.TaskStatusRunning)
-	if err := o.db.UpdateTaskStatus(ctx, taskExec.ID, models.TaskStatusRunning, nil); err != nil {
+	if err := r.db.UpdateTaskStatus(ctx, taskExec.ID, models.TaskStatusRunning, nil); err != nil {
 		return fmt.Errorf("failed to update task status: %w", err)
 	}
 
@@ -456,11 +456,11 @@ func (o *Orchestrator) executeTask(ctx context.Context, taskID string, task *mod
 			}
 		}
 
-		err := o.executeTaskFunction(ctx, task.FunctionName, job.Data)
+		err := r.executeTaskFunction(ctx, task.FunctionName, job.Data)
 		if err == nil {
 			// Task completed successfully
 			state.setStatus(taskID, models.TaskStatusCompleted)
-			return o.db.UpdateTaskStatus(ctx, taskExec.ID, models.TaskStatusCompleted, nil)
+			return r.db.UpdateTaskStatus(ctx, taskExec.ID, models.TaskStatusCompleted, nil)
 		}
 
 		lastErr = err
@@ -469,13 +469,13 @@ func (o *Orchestrator) executeTask(ctx context.Context, taskID string, task *mod
 
 	// All retries failed
 	state.setStatus(taskID, models.TaskStatusFailed)
-	return o.db.UpdateTaskStatus(ctx, taskExec.ID, models.TaskStatusFailed, lastErr)
+	return r.db.UpdateTaskStatus(ctx, taskExec.ID, models.TaskStatusFailed, lastErr)
 }
 
 // executeTaskFunction executes the actual task function
-func (o *Orchestrator) executeTaskFunction(ctx context.Context, functionName string, data map[string]interface{}) error {
+func (r *Runner) executeTaskFunction(ctx context.Context, functionName string, data map[string]interface{}) error {
 	// Get task function from our map
-	fn, exists := o.taskFunctions[functionName]
+	fn, exists := r.taskFunctions[functionName]
 	if !exists {
 		return fmt.Errorf("task function %s not found", functionName)
 	}
@@ -484,35 +484,35 @@ func (o *Orchestrator) executeTaskFunction(ctx context.Context, functionName str
 	return fn(ctx, data)
 }
 
-func (o *Orchestrator) publishStatus(event models.OrchestratorEventType) error {
+func (r *Runner) publishStatus(event models.RunnerEventType) error {
 	activeJobs := 0
-	o.ongoingJobs.Range(func(key, value interface{}) bool {
+	r.ongoingJobs.Range(func(key, value interface{}) bool {
 		activeJobs++
 		return true
 	})
 
-	// Create orchestrator status
-	orchStatus := &models.OrchestratorStatus{
-		ID:          o.id,
+	// Create runner status
+	runnerStatus := &models.RunnerStatus{
+		ID:          r.id,
 		Event:       event,
 		Timestamp:   time.Now(),
-		WorkerCount: o.config.Worker.MaxWorkers,
+		WorkerCount: r.config.Worker.MaxWorkers,
 		ActiveJobs:  activeJobs,
 	}
 
-	// Create status message that wraps orchestrator status
+	// Create status message that wraps runner status
 	statusMsg := &models.StatusMessage{
-		Type:      "orchestrator",
-		ID:        o.id,
+		Type:      "runner",
+		ID:        r.id,
 		Status:    string(event),
 		Timestamp: time.Now(),
-		Metadata:  orchStatus,
+		Metadata:  runnerStatus,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := o.queue.PublishStatus(ctx, statusMsg); err != nil {
+	if err := r.queue.PublishStatus(ctx, statusMsg); err != nil {
 		return fmt.Errorf("failed to publish status: %w", err)
 	}
 
@@ -520,13 +520,13 @@ func (o *Orchestrator) publishStatus(event models.OrchestratorEventType) error {
 }
 
 // Health check routine
-func (o *Orchestrator) runHealthChecks() {
+func (r *Runner) runHealthChecks() {
 	for {
 		select {
-		case <-o.stopChan:
+		case <-r.stopChan:
 			return
-		case <-o.healthCheckTicker.C:
-			if err := o.publishStatus(models.OrchestratorHealthy); err != nil {
+		case <-r.healthCheckTicker.C:
+			if err := r.publishStatus(models.RunnerHealthy); err != nil {
 				log.Printf("Failed to publish health status: %v", err)
 			}
 		}

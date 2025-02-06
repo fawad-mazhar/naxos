@@ -28,9 +28,9 @@ COPY . .
 # Build the API server
 RUN <<EOF
 CGO_ENABLED=0 GOARCH=${arch} GOOS=linux go build -a -ldflags="-s -w" -installsuffix cgo -o /app/api ./cmd/api
-CGO_ENABLED=0 GOARCH=${arch} GOOS=linux go build -a -ldflags="-s -w" -installsuffix cgo -o /app/orchestrator ./cmd/orchestrator
+CGO_ENABLED=0 GOARCH=${arch} GOOS=linux go build -a -ldflags="-s -w" -installsuffix cgo -o /app/runner ./cmd/runner
 upx --ultra-brute -qq /app/api && upx -t /app/api
-upx --ultra-brute -qq /app/orchestrator && upx -t /app/orchestrator
+upx --ultra-brute -qq /app/runner && upx -t /app/runner
 EOF
 
 
@@ -39,5 +39,5 @@ FROM registry.access.redhat.com/ubi9-minimal:latest AS runner
 WORKDIR /app
 # Copy the binary
 COPY --from=builder /app/api /app/api
-COPY --from=builder /app/orchestrator /app/orchestrator
+COPY --from=builder /app/runner /app/runner
 COPY --from=builder /app/naxos.yaml /app/naxos.yaml

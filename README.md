@@ -38,9 +38,9 @@ Naxos is a lightweight distributed job orchestration system written in Go that m
       rmq[(RabbitMQ)]
     end
 
-    subgraph "Orchestration Layer"
-      orch1[Orchestrator Node 1]
-      orch2[Orchestrator Node 2]
+    subgraph "Runner Layer"
+      runner1[Runner Node 1]
+      runner2[Runner Node 2]
       
       subgraph "Workers (Node 1)"
         w1[Worker 1]
@@ -59,15 +59,16 @@ Naxos is a lightweight distributed job orchestration system written in Go that m
     api -->|Store/Query| pg
     api -->|Enqueue Jobs| rmq
     
-    orch1 -->|Spawn| w1
-    orch1 -->|Spawn| w2
-    orch2 -->|Spawn| w3
-    orch2 -->|Spawn| w4
+    runner1 -->|Spawn| w1
+    runner1 -->|Spawn| w2
+    runner2 -->|Spawn| w3
+    runner2 -->|Spawn| w4
     
     w1 & w2 -->|Cache| ldb1
     w3 & w4 -->|Cache| ldb2
     
-    orch1 & orch2 -->|Consume Jobs| rmq
+    runner1 -->|Consume Jobs| rmq
+    runner2 -->|Consume Jobs| rmq
     w1 & w2 & w3 & w4 -->|Read Job Definitions| pg
   ```
 </details>
@@ -137,7 +138,7 @@ cd naxos
 
 2. Start the system
 ```bash
-docker-compose up -d
+docker-compose up -d --build
 ```
 
 ## API Endpoints

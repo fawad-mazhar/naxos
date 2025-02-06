@@ -1,4 +1,32 @@
 # docker-compose.yaml
+# ====================================== NAXOS ENVIRONMENT =======================================
+x-naxos-environment: &naxos_environment
+  # # Mandatory Environment Variables
+  - NAXOS_POSTGRES_URL=postgresql://naxos:naxos123@postgres:5432/naxos?sslmode=disable
+  - NAXOS_RABBITMQ_URL=amqp://naxos:naxos123@rabbitmq:5672/
+  # # Optional Server Configuration
+  # - NAXOS_SERVER_PORT="8080"              # defaults to 8080
+  # - NAXOS_SERVER_READ_TIMEOUT="30"        # defaults to 30
+  # - NAXOS_SERVER_WRITE_TIMEOUT="30"       # defaults to 30
+
+  # # Optional RabbitMQ Configuration
+  # - NAXOS_RABBITMQ_EXCHANGE="naxos"             # defaults to "naxos"
+  # - NAXOS_RABBITMQ_JOBS_QUEUE="naxos.jobs"      # defaults to "naxos.jobs"
+  # - NAXOS_RABBITMQ_STATUS_QUEUE="naxos.status"  # defaults to "naxos.status"
+  # - NAXOS_RABBITMQ_EXCHANGE_TYPE="direct"       # defaults to "direct"
+
+  # # Optional LevelDB Configuration
+  # - NAXOS_LEVELDB_PATH="./data/leveldb"   # defaults to "./data/leveldb"
+
+  # # Optional Worker Configuration
+  # - NAXOS_WORKER_MAX_WORKERS="10"         # defaults to 10
+  # - NAXOS_WORKER_MAX_RETRIES="3"          # defaults to 3
+  # - NAXOS_WORKER_RETRY_DELAY="5"          # defaults to 5
+  # - NAXOS_WORKER_SHUTDOWN_TIMEOUT="30"    # defaults to 30
+
+x-naxos-image: &naxos_image naxos:latest
+x-naxos-build: &naxos_build .
+# ====================================== NAXOS ENVIRONMENT ======================================
 services:
   postgres:
     image: postgres:15-alpine
@@ -36,13 +64,9 @@ services:
       retries: 5
 
   api:
-    image: naxos:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
-    environment:
-      NAXOS_POSTGRES_URL: postgresql://naxos:naxos123@postgres:5432/naxos?sslmode=disable # mandatory
-      NAXOS_RABBITMQ_URL: amqp://naxos:naxos123@rabbitmq:5672/ # mandatory
+    image: *naxos_image
+    build: *naxos_build
+    environment: *naxos_environment
     ports:
       - "8080:8080"
     command: /app/api
@@ -54,15 +78,11 @@ services:
     networks:
       - naxos
 
-  orchestrator1:
-    image: naxos:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
-    environment:
-      NAXOS_POSTGRES_URL: postgresql://naxos:naxos123@postgres:5432/naxos?sslmode=disable # mandatory
-      NAXOS_RABBITMQ_URL: amqp://naxos:naxos123@rabbitmq:5672/ # mandatory
-    command: /app/orchestrator
+  runner1:
+    image: *naxos_image
+    build: *naxos_build
+    environment: *naxos_environment
+    command: /app/runner
     volumes:
       - leveldb_data1:/app/data/leveldb
     depends_on:
@@ -73,15 +93,11 @@ services:
     networks:
       - naxos
 
-  orchestrator2:
-    image: naxos:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
-    environment:
-      NAXOS_POSTGRES_URL: postgresql://naxos:naxos123@postgres:5432/naxos?sslmode=disable # mandatory
-      NAXOS_RABBITMQ_URL: amqp://naxos:naxos123@rabbitmq:5672/ # mandatory
-    command: /app/orchestrator
+  runner2:
+    image: *naxos_image
+    build: *naxos_build
+    environment: *naxos_environment
+    command: /app/runner
     volumes:
       - leveldb_data2:/app/data/leveldb
     depends_on:
