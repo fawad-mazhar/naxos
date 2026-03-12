@@ -6,8 +6,6 @@ Fawad Mazhar <fawadmazhar@hotmail.com> 2024-2026
 
 ---
 
-> ⚠️ **Development Status**: This repository is currently under active development. Features and APIs may change without notice.
-
 Naxos is a lightweight distributed job orchestration system written in Go that manages the execution of task sequences with persistent state handling and a RESTful API interface. It supports both sequential and parallel task execution with dependency management.
 
 ## Features
