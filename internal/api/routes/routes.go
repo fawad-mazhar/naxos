@@ -14,7 +14,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func SetupRouter(cfg *config.Config, db *postgres.Client, queue *queue.RabbitMQ) *chi.Mux {
+func SetupRouter(cfg *config.Config, db *postgres.Client, queue *queue.NATS) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Middleware

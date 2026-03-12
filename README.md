@@ -2,24 +2,22 @@
 
 ---
 
-Fawad Mazhar <fawadmazhar@hotmail.com> 2024-2025
+Fawad Mazhar <fawadmazhar@hotmail.com> 2024-2026
 
 ---
 
-> ⚠️ **Development Status**: This repository is currently under active development (as of January 2025). Features and APIs may change without notice.
+> ⚠️ **Development Status**: This repository is currently under active development. Features and APIs may change without notice.
 
 Naxos is a lightweight distributed job orchestration system written in Go that manages the execution of task sequences with persistent state handling and a RESTful API interface. It supports both sequential and parallel task execution with dependency management.
-
 
 ## Features
 
 - **Job Orchestration**: Define and execute sequences of tasks with dependencies
 - **Persistent Storage**: State management using PostgreSQL
 - **Local Caching**: Fast job definition retrieval using LevelDB
-- **Message Queue**: RabbitMQ for job distribution and status updates
-- **Concurrent Execution**: Configurable worker pool for parallel job processing
+- **Message Queue**: NATS JetStream for reliable job distribution with queue groups
+- **Load Balancing**: Durable consumers with queue groups distribute jobs evenly across runners
 - **State Recovery**: Automatic recovery of interrupted jobs after system restart
-- **Health Monitoring**: System and orchestrator health checks
 - **RESTful API**: HTTP interface for job management and monitoring
 
 ## System Design
@@ -35,41 +33,38 @@ Naxos is a lightweight distributed job orchestration system written in Go that m
 
     subgraph "Storage Layer"
       pg[(PostgreSQL)]
-      rmq[(RabbitMQ)]
+      nats[(NATS JetStream)]
     end
 
     subgraph "Runner Layer"
-      runner1[Runner Node 1]
-      runner2[Runner Node 2]
-      
-      subgraph "Workers (Node 1)"
-        w1[Worker 1]
-        w2[Worker 2]
+      subgraph "Runner Node 1"
+        runner1[Runner 1]
         ldb1[(LevelDB 1)]
       end
       
-      subgraph "Workers (Node 2)"
-        w3[Worker 1]
-        w4[Worker 2]
+      subgraph "Runner Node 2"
+        runner2[Runner 2]
         ldb2[(LevelDB 2)]
+      end
+
+      subgraph "Runner Node N"
+        runnerN[Runner N]
+        ldbN[(LevelDB N)]
       end
     end
 
     client -->|HTTP| api
     api -->|Store/Query| pg
-    api -->|Enqueue Jobs| rmq
+    api -->|Publish Jobs| nats
     
-    runner1 -->|Spawn| w1
-    runner1 -->|Spawn| w2
-    runner2 -->|Spawn| w3
-    runner2 -->|Spawn| w4
+    runner1 -->|Cache| ldb1
+    runner2 -->|Cache| ldb2
+    runnerN -->|Cache| ldbN
     
-    w1 & w2 -->|Cache| ldb1
-    w3 & w4 -->|Cache| ldb2
-    
-    runner1 -->|Consume Jobs| rmq
-    runner2 -->|Consume Jobs| rmq
-    w1 & w2 & w3 & w4 -->|Read Job Definitions| pg
+    runner1 -->|Consume Jobs<br/>Queue Group| nats
+    runner2 -->|Consume Jobs<br/>Queue Group| nats
+    runnerN -->|Consume Jobs<br/>Queue Group| nats
+    runner1 & runner2 & runnerN -->|Read/Write| pg
   ```
 </details>
 
@@ -127,7 +122,7 @@ Naxos is a lightweight distributed job orchestration system written in Go that m
 
 ### Prerequisites
 - Docker and Docker Compose
-- Go 1.21 or later (for development)
+- Go 1.24 or later (for development)
 
 ### Running with Docker Compose
 1. Clone the repository
@@ -138,8 +133,23 @@ cd naxos
 
 2. Start the system
 ```bash
-docker-compose up -d --build
+docker compose up -d --build
 ```
+
+This starts PostgreSQL, NATS (with JetStream), the API server, and 4 runner instances.
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `NAXOS_POSTGRES_URL` | Yes | - | PostgreSQL connection URL |
+| `NAXOS_NATS_URL` | Yes | - | NATS server URL |
+| `NAXOS_SERVER_PORT` | No | `8080` | API server port |
+| `NAXOS_NATS_STREAM_NAME` | No | `NAXOS_JOBS` | JetStream stream name |
+| `NAXOS_NATS_SUBJECT` | No | `naxos.jobs` | NATS subject for jobs |
+| `NAXOS_NATS_QUEUE_GROUP` | No | `naxos-runners` | Consumer queue group name |
+| `NAXOS_LEVELDB_PATH` | No | `./data/leveldb` | LevelDB cache path |
+| `NAXOS_WORKER_SHUTDOWN_TIMEOUT` | No | `30` | Shutdown timeout in seconds |
 
 ## API Endpoints
 
@@ -157,7 +167,9 @@ docker-compose up -d --build
 
 Execute a job:
 ```bash
-curl -X POST http://localhost:8080/api/v1/jobs/sample-1/execute -d '{"param": "value"}'
+curl -X POST http://localhost:8080/api/v1/jobs/sample-1/execute \
+  -H "Content-Type: application/json" \
+  -d '{"param": "value"}'
 ```
 
 Check job status:
@@ -168,7 +180,13 @@ curl http://localhost:8080/api/v1/jobs/{execution-id}/status
 ### Building
 ```bash
 go build -o bin/api cmd/api/main.go
-go build -o bin/orchestrator cmd/orchestrator/main.go
+go build -o bin/runner cmd/runner/main.go
+```
+
+### Load Testing
+A load test script is included to verify job distribution across runners:
+```bash
+./scripts/test_load.sh http://localhost:8080 150
 ```
 
 ## License

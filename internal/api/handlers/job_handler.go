@@ -14,10 +14,11 @@ import (
 
 type JobHandler struct {
 	db    *postgres.Client
-	queue *queue.RabbitMQ
+	queue *queue.NATS
 }
 
-func NewJobHandler(db *postgres.Client, queue *queue.RabbitMQ) *JobHandler {
+// NewJobHandler creates a new handler for job-related API endpoints.
+func NewJobHandler(db *postgres.Client, queue *queue.NATS) *JobHandler {
 	return &JobHandler{
 		db:    db,
 		queue: queue,

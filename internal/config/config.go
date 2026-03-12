@@ -14,7 +14,7 @@ import (
 type Config struct {
 	Server         ServerConfig           `yaml:"server"`
 	Postgres       PostgresConfig         `yaml:"postgres"`
-	RabbitMQ       RabbitMQConfig         `yaml:"rabbitmq"`
+	NATS           NATSConfig             `yaml:"nats"`
 	LevelDB        LevelDBConfig          `yaml:"leveldb"`
 	Worker         WorkerConfig           `yaml:"worker"`
 	JobDefinitions []models.JobDefinition `yaml:"job_definitions"`
@@ -32,13 +32,12 @@ type PostgresConfig struct {
 	URL string `yaml:"-"`
 }
 
-// RabbitMQConfig holds RabbitMQ configuration
-type RabbitMQConfig struct {
-	URL          string `yaml:"url"`
-	Exchange     string `yaml:"exchange"`
-	JobsQueue    string `yaml:"jobsQueue"`
-	StatusQueue  string `yaml:"statusQueue"`
-	ExchangeType string `yaml:"exchangeType"`
+// NATSConfig holds NATS JetStream configuration
+type NATSConfig struct {
+	URL        string `yaml:"url"`
+	StreamName string `yaml:"streamName"`
+	Subject    string `yaml:"subject"`
+	QueueGroup string `yaml:"queueGroup"`
 }
 
 // LevelDBConfig holds LevelDB configuration
@@ -62,10 +61,9 @@ const (
 	DefaultRetryDelay         = 5
 	DefaultShutdownTimeout    = 30
 	DefaultLevelDBPath        = "./data/leveldb"
-	DefaultRabbitMQExchange   = "naxos"
-	DefaultJobsQueue          = "naxos.jobs"
-	DefaultStatusQueue        = "naxos.status"
-	DefaultExchangeType       = "direct"
+	DefaultNATSStreamName     = "NAXOS_JOBS"
+	DefaultNATSSubject        = "naxos.jobs"
+	DefaultNATSQueueGroup     = "naxos-runners"
 )
 
 // getEnv retrieves an environment variable or returns a default value
@@ -104,9 +102,9 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("NAXOS_POSTGRES_URL environment variable is required")
 	}
 
-	rabbitmqURL := os.Getenv("NAXOS_RABBITMQ_URL")
-	if rabbitmqURL == "" {
-		return nil, fmt.Errorf("NAXOS_RABBITMQ_URL environment variable is required")
+	natsURL := os.Getenv("NAXOS_NATS_URL")
+	if natsURL == "" {
+		return nil, fmt.Errorf("NAXOS_NATS_URL environment variable is required")
 	}
 
 	// Override/set configuration with environment variables and defaults
@@ -120,12 +118,11 @@ func Load(configPath string) (*Config, error) {
 		URL: postgresURL,
 	}
 
-	config.RabbitMQ = RabbitMQConfig{
-		URL:          rabbitmqURL,
-		Exchange:     getEnv("NAXOS_RABBITMQ_EXCHANGE", DefaultRabbitMQExchange),
-		JobsQueue:    getEnv("NAXOS_RABBITMQ_JOBS_QUEUE", DefaultJobsQueue),
-		StatusQueue:  getEnv("NAXOS_RABBITMQ_STATUS_QUEUE", DefaultStatusQueue),
-		ExchangeType: getEnv("NAXOS_RABBITMQ_EXCHANGE_TYPE", DefaultExchangeType),
+	config.NATS = NATSConfig{
+		URL:        natsURL,
+		StreamName: getEnv("NAXOS_NATS_STREAM_NAME", DefaultNATSStreamName),
+		Subject:    getEnv("NAXOS_NATS_SUBJECT", DefaultNATSSubject),
+		QueueGroup: getEnv("NAXOS_NATS_QUEUE_GROUP", DefaultNATSQueueGroup),
 	}
 
 	config.LevelDB = LevelDBConfig{

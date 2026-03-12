@@ -19,19 +19,16 @@ import (
 )
 
 type Runner struct {
-	id                string
-	config            *config.Config
-	db                *postgres.Client
-	cache             *leveldb.Client
-	queue             *queue.RabbitMQ
-	workerPool        chan struct{}
-	workers           sync.WaitGroup
-	stopChan          chan struct{}
-	isShutdown        bool
-	shutdownLock      sync.RWMutex
-	healthCheckTicker *time.Ticker
-	ongoingJobs       sync.Map
-	taskFunctions     map[string]worker.TaskFunction
+	id            string
+	config        *config.Config
+	db            *postgres.Client
+	cache         *leveldb.Client
+	queue         *queue.NATS
+	stopChan      chan struct{}
+	isShutdown    bool
+	shutdownLock  sync.RWMutex
+	ongoingJobs   sync.Map
+	taskFunctions map[string]worker.TaskFunction
 }
 
 type jobState struct {
@@ -63,14 +60,14 @@ func (js *jobState) setStatus(taskID string, status models.TaskStatus) {
 	js.taskStatuses[taskID] = status
 }
 
-func NewRunner(cfg *config.Config, db *postgres.Client, cache *leveldb.Client, queue *queue.RabbitMQ, taskFunctions map[string]worker.TaskFunction) *Runner {
+// NewRunner creates a new Runner instance for processing jobs.
+func NewRunner(cfg *config.Config, db *postgres.Client, cache *leveldb.Client, queue *queue.NATS, taskFunctions map[string]worker.TaskFunction) *Runner {
 	return &Runner{
 		id:            uuid.New().String(),
 		config:        cfg,
 		db:            db,
 		cache:         cache,
 		queue:         queue,
-		workerPool:    make(chan struct{}, cfg.Worker.MaxWorkers),
 		stopChan:      make(chan struct{}),
 		taskFunctions: taskFunctions,
 	}
@@ -78,18 +75,9 @@ func NewRunner(cfg *config.Config, db *postgres.Client, cache *leveldb.Client, q
 
 // Start begins the runner's main processing loop
 func (r *Runner) Start(ctx context.Context) error {
-	log.Printf("Starting runner %s with %d workers", r.id, r.config.Worker.MaxWorkers)
+	log.Printf("Starting runner %s", r.id)
 
-	// Publish started status
-	if err := r.publishStatus(models.RunnerStarted); err != nil {
-		log.Printf("Failed to publish start status: %v", err)
-	}
-
-	// Start health check ticker
-	r.healthCheckTicker = time.NewTicker(1 * time.Minute)
-	go r.runHealthChecks()
-
-	// Start consuming jobs from RabbitMQ
+	// Start consuming jobs from NATS JetStream
 	jobsChan, err := r.queue.ConsumeJobs(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to start consuming jobs: %w", err)
@@ -106,40 +94,32 @@ func (r *Runner) Start(ctx context.Context) error {
 			return ctx.Err()
 		case <-r.stopChan:
 			return nil
-		case delivery, ok := <-jobsChan:
+		case msg, ok := <-jobsChan:
 			if !ok {
 				return fmt.Errorf("jobs channel closed")
 			}
 
 			// Decode job execution message
 			var job models.JobExecution
-			if err := json.Unmarshal(delivery.Body, &job); err != nil {
+			if err := json.Unmarshal(msg.Data(), &job); err != nil {
 				log.Printf("Error decoding job: %v", err)
-				delivery.Nack(false, false) // Don't requeue malformed messages
+				if termErr := msg.Term(); termErr != nil {
+					log.Printf("Error terminating message: %v", termErr)
+				}
 				continue
 			}
 
-			// Try to acquire worker slot
-			select {
-			case r.workerPool <- struct{}{}:
-				r.workers.Add(1)
-				go func(job models.JobExecution) {
-					defer func() {
-						<-r.workerPool // Release worker slot
-						r.workers.Done()
-					}()
+			// Process one job at a time
+			if err := r.processJob(ctx, &job); err != nil {
+				log.Printf("Error processing job %s: %v", job.ID, err)
+				if nakErr := msg.Nak(); nakErr != nil {
+					log.Printf("Error naking message: %v", nakErr)
+				}
+				continue
+			}
 
-					if err := r.processJob(ctx, &job); err != nil {
-						log.Printf("Error processing job %s: %v", job.ID, err)
-						delivery.Nack(false, true) // Requeue on processing error
-						return
-					}
-
-					delivery.Ack(false)
-				}(job)
-			default:
-				// Worker pool full, nack with requeue
-				delivery.Nack(false, true)
+			if err := msg.Ack(); err != nil {
+				log.Printf("Error acking message: %v", err)
 			}
 		}
 	}
@@ -268,44 +248,15 @@ func (r *Runner) recoverInProgressJobs(ctx context.Context) error {
 
 // Shutdown initiates a graceful shutdown of the runner
 func (r *Runner) Shutdown(timeout time.Duration) error {
-	// Publish stopping status
-	if err := r.publishStatus(models.RunnerStopping); err != nil {
-		log.Printf("Failed to publish stopping status: %v", err)
-	}
-
 	r.shutdownLock.Lock()
 	r.isShutdown = true
 	r.shutdownLock.Unlock()
 
-	// Stop health check ticker
-	if r.healthCheckTicker != nil {
-		r.healthCheckTicker.Stop()
-	}
-
 	// Signal main loop to stop
 	close(r.stopChan)
 
-	// Wait for ongoing jobs with timeout
-	done := make(chan struct{})
-	go func() {
-		r.workers.Wait()
-		close(done)
-	}()
-
-	var shutdownErr error
-	select {
-	case <-done:
-		shutdownErr = nil
-	case <-time.After(timeout):
-		shutdownErr = fmt.Errorf("shutdown timed out after %v", timeout)
-	}
-
-	// Publish final stopped status
-	if err := r.publishStatus(models.RunnerStopped); err != nil {
-		log.Printf("Failed to publish stopped status: %v", err)
-	}
-
-	return shutdownErr
+	log.Printf("Runner %s shutdown initiated", r.id)
+	return nil
 }
 
 // IsShutdown returns the current shutdown status
@@ -482,53 +433,4 @@ func (r *Runner) executeTaskFunction(ctx context.Context, functionName string, d
 
 	// Execute the task function with context and data
 	return fn(ctx, data)
-}
-
-func (r *Runner) publishStatus(event models.RunnerEventType) error {
-	activeJobs := 0
-	r.ongoingJobs.Range(func(key, value interface{}) bool {
-		activeJobs++
-		return true
-	})
-
-	// Create runner status
-	runnerStatus := &models.RunnerStatus{
-		ID:          r.id,
-		Event:       event,
-		Timestamp:   time.Now(),
-		WorkerCount: r.config.Worker.MaxWorkers,
-		ActiveJobs:  activeJobs,
-	}
-
-	// Create status message that wraps runner status
-	statusMsg := &models.StatusMessage{
-		Type:      "runner",
-		ID:        r.id,
-		Status:    string(event),
-		Timestamp: time.Now(),
-		Metadata:  runnerStatus,
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := r.queue.PublishStatus(ctx, statusMsg); err != nil {
-		return fmt.Errorf("failed to publish status: %w", err)
-	}
-
-	return nil
-}
-
-// Health check routine
-func (r *Runner) runHealthChecks() {
-	for {
-		select {
-		case <-r.stopChan:
-			return
-		case <-r.healthCheckTicker.C:
-			if err := r.publishStatus(models.RunnerHealthy); err != nil {
-				log.Printf("Failed to publish health status: %v", err)
-			}
-		}
-	}
 }

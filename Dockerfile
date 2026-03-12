@@ -1,6 +1,6 @@
 # Dockerfile
 # syntax=docker/dockerfile:1.4
-FROM golang:1.23-bookworm AS builder
+FROM golang:1.24-bookworm AS builder
 
 ARG upx_version=4.2.4
 ARG arch=amd64

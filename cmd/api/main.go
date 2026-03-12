@@ -30,10 +30,10 @@ func main() {
 	}
 	defer db.Close()
 
-	// Initialize RabbitMQ client
-	queue, err := queue.NewRabbitMQ(cfg.RabbitMQ)
+	// Initialize NATS client
+	queue, err := queue.NewNATS(cfg.NATS)
 	if err != nil {
-		log.Fatalf("Failed to connect to RabbitMQ: %v", err)
+		log.Fatalf("Failed to connect to NATS: %v", err)
 	}
 	defer queue.Close()
 

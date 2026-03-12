@@ -21,21 +21,21 @@ type TaskFunctions interface {
 // Task1 implements a sample task operation
 func Task1(ctx context.Context, data map[string]interface{}) error {
 	log.Printf("Executing Task 1 with data %v", data)
-	time.Sleep(10 * time.Second)
+	time.Sleep(1 * time.Second)
 	return nil
 }
 
 // Task2 implements another sample task operation
 func Task2(ctx context.Context, data map[string]interface{}) error {
 	log.Println("Executing Task 2")
-	time.Sleep(8 * time.Second)
+	time.Sleep(1 * time.Second)
 	return nil
 }
 
 // Task3 implements a third sample task operation
 func Task3(ctx context.Context, data map[string]interface{}) error {
 	log.Println("Executing Task 3")
-	time.Sleep(5 * time.Second)
+	time.Sleep(1 * time.Second)
 	return nil
 }
 
